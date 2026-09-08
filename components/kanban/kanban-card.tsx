@@ -69,8 +69,13 @@ export function KanbanCard({
 
   return (
     <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', task.id);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
       onClick={() => onSelectTask(task)}
-      className="group relative flex flex-col rounded-xl border border-zinc-800/80 bg-zinc-900/80 p-3.5 shadow-sm backdrop-blur-sm transition-all duration-150 hover:border-zinc-700 hover:bg-zinc-900 hover:shadow-md cursor-pointer"
+      className="group relative flex flex-col rounded-xl border border-zinc-800/80 bg-zinc-900/80 p-3.5 shadow-sm backdrop-blur-sm transition-all duration-150 hover:border-zinc-700 hover:bg-zinc-900 hover:shadow-md cursor-grab active:cursor-grabbing"
     >
       {/* Top Meta Line: ID, Layer, Priority */}
       <div className="flex items-center justify-between gap-2 mb-2">

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { TaskItemData } from '@/lib/ai/tasks';
 import type { TaskLayer, TaskStatus } from '@/lib/db/database.types';
 import { KanbanColumn } from './kanban-column';
@@ -24,6 +24,7 @@ import {
   Server,
   Layout,
   Loader2,
+  Radio,
 } from 'lucide-react';
 
 interface KanbanBoardProps {
@@ -51,17 +52,83 @@ export function KanbanBoard({
   const [activeTask, setActiveTask] = useState<TaskItemData | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const autoTriggeredRef = React.useRef(false);
+  const autoTriggeredRef = useRef(false);
   const [approvedLayers, setApprovedLayers] = useState<Record<string, boolean>>({
-    DATABASE: true, // Layer database sudah di-approve
+    DATABASE: true,
   });
 
+  // Live Polling / Real-Time Sync State
+  const [syncState, setSyncState] = useState<'connected' | 'syncing' | 'error'>(
+    'connected'
+  );
+  const [lastSyncedTime, setLastSyncedTime] = useState<string>('Belum sinkron');
+  const isPollingRef = useRef(false);
+  const tasksRef = useRef<TaskItemData[]>(initialTasks);
+
+  // Sync ref when state changes
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
+
+  // Real-Time Auto-Sync via Polling
+  const pollServerTasks = useCallback(async () => {
+    if (isGenerating || isPollingRef.current) return;
+    isPollingRef.current = true;
+    setSyncState('syncing');
+    try {
+      const res = await fetch(`/api/projects/${projectId}/tasks`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      const data = await res.json();
+
+      if (data.success && Array.isArray(data.tasks) && data.tasks.length > 0) {
+        const currentTasks = tasksRef.current;
+        const hasChange =
+          data.tasks.length !== currentTasks.length ||
+          data.tasks.some((serverTask: TaskItemData) => {
+            const localTask = currentTasks.find((t) => t.id === serverTask.id);
+            return (
+              localTask &&
+              (localTask.status !== serverTask.status ||
+                localTask.title !== serverTask.title)
+            );
+          });
+
+        if (hasChange) {
+          setTasks(data.tasks);
+          if (onSaveTasks) onSaveTasks(data.tasks);
+        }
+        setSyncState('connected');
+        setLastSyncedTime(
+          new Date().toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
+        );
+      } else {
+        setSyncState('connected');
+      }
+    } catch {
+      setSyncState('error');
+    } finally {
+      isPollingRef.current = false;
+    }
+  }, [projectId, isGenerating, onSaveTasks]);
+
+  useEffect(() => {
+    const intervalId = setInterval(pollServerTasks, 2500);
+    return () => clearInterval(intervalId);
+  }, [pollServerTasks]);
+
   // Auto-generate tasks via AI jika belum ada
-  React.useEffect(() => {
+  useEffect(() => {
     if (tasks.length === 0 && !autoTriggeredRef.current) {
       autoTriggeredRef.current = true;
       handleGenerateTasksWithAI();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks]);
 
   const handleGenerateTasksWithAI = async () => {
@@ -136,22 +203,29 @@ export function KanbanBoard({
     return { total, done, inProgress, blocked, progressPercent };
   }, [tasks]);
 
-  // Layer transition checkpoint check
-  // E.g. Check Database tasks
   const dbTasks = tasks.filter((t) => t.layer === 'DATABASE');
   const dbDoneCount = dbTasks.filter((t) => t.status === 'DONE').length;
   const isDbReady = dbDoneCount === dbTasks.length && dbTasks.length > 0;
 
-  // Backend tasks
-  const beTasks = tasks.filter((t) => t.layer === 'BACKEND');
-  const beDoneCount = beTasks.filter((t) => t.status === 'DONE').length;
-
-  const handleUpdateStatus = (taskId: string, newStatus: TaskStatus) => {
+  // Update status + persist to API
+  const handleUpdateStatus = async (taskId: string, newStatus: TaskStatus) => {
+    // Optimistic UI
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
     );
     if (activeTask && activeTask.id === taskId) {
       setActiveTask((prev) => (prev ? { ...prev, status: newStatus } : null));
+    }
+
+    // Persist to server
+    try {
+      await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+    } catch {
+      // Silent fallback
     }
   };
 
@@ -161,7 +235,7 @@ export function KanbanBoard({
 
   return (
     <div className="space-y-4">
-      {/* Checkpoint Banner (Human-in-the-loop Guard) */}
+      {/* Checkpoint Banner */}
       {isDbReady && (
         <CheckpointBanner
           layer="DATABASE"
@@ -172,9 +246,8 @@ export function KanbanBoard({
         />
       )}
 
-      {/* Action Bar: Layer Filters, Search & Metrics */}
+      {/* Action Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
-        {/* Layer Selector Chips */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
           {[
             { id: 'ALL', label: 'Semua Layer', icon: Layers },
@@ -187,7 +260,6 @@ export function KanbanBoard({
               item.id === 'ALL'
                 ? tasks.length
                 : tasks.filter((t) => t.layer === item.id).length;
-
             const isSelected = selectedLayer === item.id;
             return (
               <button
@@ -213,8 +285,33 @@ export function KanbanBoard({
           })}
         </div>
 
-        {/* Search, AI Trigger & Quick Stats */}
         <div className="flex items-center gap-2">
+          {/* Live Sync Status Badge */}
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-full border border-zinc-800 bg-zinc-900/90 text-[11px] font-mono select-none">
+            {syncState === 'syncing' ? (
+              <span className="flex items-center gap-1.5 text-rose-400">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
+                </span>
+                <span>Live Syncing...</span>
+              </span>
+            ) : syncState === 'connected' ? (
+              <span className="flex items-center gap-1.5 text-emerald-400">
+                <Radio className="h-3 w-3" />
+                <span>Realtime Connected</span>
+                <span className="text-zinc-500 text-[10px]">
+                  ({lastSyncedTime})
+                </span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-amber-400">
+                <span className="h-2 w-2 rounded-full bg-amber-500" />
+                <span>Reconnecting...</span>
+              </span>
+            )}
+          </div>
+
           <Button
             variant="outline"
             size="sm"
@@ -230,7 +327,7 @@ export function KanbanBoard({
             ) : (
               <>
                 <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
-                Generate Tasks via AI (ai-builder)
+                Generate Tasks via AI
               </>
             )}
           </Button>
@@ -246,21 +343,18 @@ export function KanbanBoard({
             />
           </div>
 
-          {/* Quick Mini Metrics */}
           <div className="hidden lg:flex items-center gap-2 border-l border-zinc-800 pl-3 text-xs font-mono">
             <div className="flex items-center gap-1 text-emerald-400">
               <CheckCircle2 className="h-3.5 w-3.5" />
               <span>{metrics.done}/{metrics.total}</span>
             </div>
             <div className="text-zinc-600">|</div>
-            <div className="text-zinc-400">
-              {metrics.progressPercent}% Selesai
-            </div>
+            <div className="text-zinc-400">{metrics.progressPercent}% Selesai</div>
           </div>
         </div>
       </div>
 
-      {/* AI Generating Animation Card */}
+      {/* AI Generating Animation */}
       {isGenerating && (
         <div className="rounded-xl border border-indigo-500/40 bg-indigo-950/20 p-6 text-center shadow-2xl animate-pulse">
           <div className="flex flex-col items-center justify-center space-y-3">
@@ -269,18 +363,17 @@ export function KanbanBoard({
             </div>
             <div className="space-y-1">
               <h3 className="text-sm font-bold text-zinc-100">
-                Autonomous Agent Coordinator Sedang Menghitung Bounded Context Tasks untuk "{projectName}"...
+                Autonomous Agent Coordinator Sedang Menghitung Bounded Context Tasks...
               </h3>
               <p className="text-xs text-zinc-400 max-w-xl mx-auto">
-                Model <span className="font-mono text-indigo-300">ai-builder</span> sedang mengisolasi target files
-                (files_to_create, files_to_modify) dan kriteria pengujian per task untuk eksekusi CLI Agent.
+                Model <span className="font-mono text-indigo-300">ai-builder</span> sedang mengisolasi target files untuk eksekusi AI Coding Agent.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* 5-Column Kanban Board Layout */}
+      {/* Kanban Board 5-Column */}
       <div className="flex gap-4 overflow-x-auto pb-6 pt-1">
         <KanbanColumn
           status="TODO"
