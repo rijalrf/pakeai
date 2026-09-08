@@ -61,7 +61,20 @@ export function KanbanColumn({
   const Icon = meta.icon;
 
   return (
-    <div className="flex flex-col min-w-[280px] w-full max-w-[340px] rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3 shadow-sm backdrop-blur-xs flex-1">
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const taskId = e.dataTransfer.getData('text/plain');
+        if (taskId && onStatusChange) {
+          onStatusChange(taskId, status);
+        }
+      }}
+      className="flex flex-col min-w-[280px] w-full max-w-[340px] rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3 shadow-sm backdrop-blur-xs flex-1 transition-colors hover:border-zinc-700/60"
+    >
       {/* Column Header */}
       <div className="flex items-center justify-between pb-3 mb-2 border-b border-zinc-800/60">
         <div className="flex items-center gap-2">

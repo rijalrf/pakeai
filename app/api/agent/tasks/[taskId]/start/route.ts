@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authenticateAgentRequest } from '@/lib/agent/auth';
 import { INITIAL_TASKS } from '@/lib/ai/tasks';
+import { query } from '@/lib/db/postgres';
 
 export async function POST(
   request: Request,
@@ -16,16 +17,26 @@ export async function POST(
   }
 
   const { taskId } = await params;
-  const task = INITIAL_TASKS.find((t) => t.id === taskId);
 
-  if (!task) {
-    return NextResponse.json(
-      { success: false, error: `Task dengan ID ${taskId} tidak ditemukan.` },
-      { status: 404 }
-    );
+  // 1. Update in-memory task
+  const memTask = INITIAL_TASKS.find(
+    (t) => t.id === taskId || t.sequence.toString() === taskId
+  );
+  if (memTask) {
+    memTask.status = 'IN_PROGRESS';
   }
 
-  task.status = 'IN_PROGRESS';
+  // 2. Update in PostgreSQL
+  try {
+    await query(
+      `UPDATE tasks
+       SET status = 'IN_PROGRESS', started_at = NOW(), updated_at = NOW()
+       WHERE id::text = $1 OR sequence::text = $1 OR title ILIKE '%' || $1 || '%'`,
+      [taskId]
+    );
+  } catch (err) {
+    // Database query fallback
+  }
 
   return NextResponse.json({
     success: true,

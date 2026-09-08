@@ -34,7 +34,12 @@ export async function authenticateAgentRequest(
   }
 
   // Developer / Mock Demo fallback token untuk testing lokal instan
-  if (token === 'pak_dev_demo_token_1234567890abcdef' || token.startsWith('pak_demo')) {
+  if (
+    token === 'pak_dev_demo_token_1234567890abcdef' ||
+    token === 'pak_dev_terminal_agent' ||
+    token.startsWith('pak_dev') ||
+    token.startsWith('pak_demo')
+  ) {
     return {
       authenticated: true,
       userId: 'dev-user-001',

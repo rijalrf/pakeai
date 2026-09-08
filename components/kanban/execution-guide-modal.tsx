@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import type { TaskItemData } from '@/lib/ai/tasks';
+import { generateMasterAgentPrompt } from '@/lib/ai/master-prompt';
 import {
   Terminal,
   Copy,
@@ -21,6 +23,8 @@ import {
   Play,
   CheckCircle2,
   Cpu,
+  Radio,
+  Bot,
 } from 'lucide-react';
 
 interface ExecutionGuideModalProps {
@@ -31,6 +35,8 @@ interface ExecutionGuideModalProps {
   tasks: TaskItemData[];
 }
 
+type TabId = 'master' | 'cli' | 'agent-prompt' | 'workflow';
+
 export function ExecutionGuideModal({
   isOpen,
   onClose,
@@ -38,8 +44,35 @@ export function ExecutionGuideModal({
   projectName,
   tasks,
 }: ExecutionGuideModalProps) {
-  const [activeTab, setActiveTab] = useState<'cli' | 'agent-prompt' | 'workflow'>('cli');
+  const [activeTab, setActiveTab] = useState<TabId>('master');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Base URL switcher
+  const [baseUrlPreset, setBaseUrlPreset] = useState<'fe' | 'be' | 'custom'>(
+    'fe'
+  );
+  const [customBaseUrl, setCustomBaseUrl] = useState('');
+  const [detectedBaseUrl, setDetectedBaseUrl] = useState(
+    'http://localhost:3455'
+  );
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setDetectedBaseUrl(window.location.origin);
+    }
+  }, []);
+
+  const baseUrl =
+    baseUrlPreset === 'fe'
+      ? detectedBaseUrl
+      : baseUrlPreset === 'be'
+      ? 'http://localhost:6655'
+      : customBaseUrl || detectedBaseUrl;
+
+  const [token, setToken] = useState('pak_dev_terminal_agent');
+  const [mode, setMode] = useState<'semi-autonomous' | 'autonomous'>(
+    'semi-autonomous'
+  );
 
   if (!isOpen) return null;
 
@@ -49,7 +82,6 @@ export function ExecutionGuideModal({
     setTimeout(() => setCopiedKey(null), 2200);
   };
 
-  // Ambil task pertama yang berstatus TODO atau IN_PROGRESS
   const currentTask =
     tasks.find((t) => t.status === 'IN_PROGRESS') ||
     tasks.find((t) => t.status === 'TODO') ||
@@ -57,14 +89,13 @@ export function ExecutionGuideModal({
 
   const defaultToken = 'pak_dev_terminal_agent';
 
-  // Perintah CLI global (bisa dijalankan di folder mana saja termasuk ~/belajar/pake-ai)
   const oneLinerCli = `project-ai login ${defaultToken} && project-ai next`;
   const cliLoginCmd = `project-ai login ${defaultToken}`;
   const cliNextCmd = `project-ai next`;
   const cliContextCmd = `project-ai context`;
   const cliDoneCmd = `project-ai done`;
 
-  // AI Prompt siap copas untuk OpenCode / Claude Code / Cursor / Windsurf
+  // AI Prompt siap copas untuk AI IDE (single-task legacy)
   const aiAgentPrompt = currentTask
     ? `Halo OpenCode, tolong kerjakan task berikut pada project ini secara akurat:
 
@@ -96,10 +127,18 @@ ATURAN KETAT UNTUK ANDA:
 2. Buat file-file yang tercantum di atas sekarang juga.`
     : `Silakan pilih task pada Kanban untuk melihat konteks prompt AI.`;
 
+  // Master Prompt Autonomous / Semi-Autonomous Loop
+  const masterPrompt = generateMasterAgentPrompt({
+    baseUrl,
+    token,
+    projectName,
+    mode,
+  });
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div
-        className="relative w-full max-w-3xl rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="relative w-full max-w-4xl rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -132,10 +171,19 @@ ATURAN KETAT UNTUK ANDA:
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-zinc-800 bg-zinc-900/20 px-6 pt-2 gap-1">
+        <div className="flex border-b border-zinc-800 bg-zinc-900/20 px-6 pt-2 gap-1 overflow-x-auto">
           {[
-            { id: 'cli', label: '⚡ Terminal CLI (Rekomendasi)', icon: Terminal },
-            { id: 'agent-prompt', label: '🤖 Copas ke Claude Code / Cursor', icon: Wand2 },
+            {
+              id: 'master',
+              label: '⚡ Master Prompt Loop (Siap Copas 1x)',
+              icon: Bot,
+            },
+            { id: 'cli', label: '🛠 Terminal CLI (project-ai)', icon: Terminal },
+            {
+              id: 'agent-prompt',
+              label: '🤖 Single Task Prompt',
+              icon: Wand2,
+            },
             { id: 'workflow', label: '📋 Alur Kerja & Checkpoint', icon: Layers },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -143,8 +191,8 @@ ATURAN KETAT UNTUK ANDA:
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all ${
+                onClick={() => setActiveTab(tab.id as TabId)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${
                   isActive
                     ? 'border-indigo-500 text-indigo-400 bg-zinc-900/40'
                     : 'border-transparent text-zinc-400 hover:text-zinc-200'
@@ -159,22 +207,231 @@ ATURAN KETAT UNTUK ANDA:
 
         {/* Modal Body Content */}
         <div className="p-6 overflow-y-auto space-y-4 flex-1 text-xs">
-          {/* TAB 1: TERMINAL CLI */}
-          {activeTab === 'cli' && (
+          {/* TAB MASTER PROMPT */}
+          {activeTab === 'master' && (
             <div className="space-y-4">
-              {/* Note callout */}
-              <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-[11px] text-amber-300">
-                ⚠️ <strong>PERHATIAN:</strong> Jalankan perintah di bawah ini di <strong>Terminal shell biasa Anda</strong> (bash/zsh), <strong>BUKAN</strong> di-paste ke dalam chat OpenCode / AI! Jika ingin menyuruh OpenCode koding, buka <strong>Tab 2 (Copas ke OpenCode / Claude Code)</strong>.
+              <div className="rounded-lg border border-emerald-500/40 bg-emerald-950/20 p-3 text-[11px] text-emerald-200">
+                <div className="flex items-start gap-2">
+                  <Radio className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+                  <div>
+                    <strong className="text-emerald-300">
+                      Master Prompt Orchestrator:
+                    </strong>{' '}
+                    Cukup salin 1 prompt ini ke AI Coding Agent Anda (Claude Code, OpenCode, Cursor Agent, Codex, Aider, Windsurf).
+                    AI Agent akan otomatis terhubung ke API SaaS via HTTP cURL, mengambil task satu per satu, mengerjakannya sesuai Bounded Context, dan mengupdate status di Kanban secara real-time.
+                  </div>
+                </div>
               </div>
 
-              {/* Highlight Box: One-Liner Instan */}
+              {/* Configuration Panel */}
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 font-mono">
+                  ⚙️ Konfigurasi Master Prompt
+                </h3>
+
+                {/* Base URL Selector */}
+                <div>
+                  <label className="block text-[10px] font-mono uppercase text-zinc-400 mb-1">
+                    Base API Orchestrator
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => setBaseUrlPreset('fe')}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                        baseUrlPreset === 'fe'
+                          ? 'bg-indigo-600 border-indigo-500 text-white'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      🌐 Frontend (Port 3455)
+                    </button>
+                    <button
+                      onClick={() => setBaseUrlPreset('be')}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                        baseUrlPreset === 'be'
+                          ? 'bg-emerald-600 border-emerald-500 text-white'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      🛢 Backend Dedicated (Port 6655)
+                    </button>
+                    <button
+                      onClick={() => setBaseUrlPreset('custom')}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                        baseUrlPreset === 'custom'
+                          ? 'bg-amber-600 border-amber-500 text-white'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      🔗 Custom URL Deploy
+                    </button>
+                    <code className="text-[11px] font-mono text-emerald-400 bg-zinc-950 px-2 py-1 rounded border border-zinc-800">
+                      {baseUrl}
+                    </code>
+                  </div>
+                  {baseUrlPreset === 'custom' && (
+                    <Input
+                      type="text"
+                      placeholder="https://project-ai-planner.example.com"
+                      value={customBaseUrl}
+                      onChange={(e) => setCustomBaseUrl(e.target.value)}
+                      className="mt-2 h-8 text-xs bg-zinc-950 border-zinc-800"
+                    />
+                  )}
+                </div>
+
+                {/* Token */}
+                <div>
+                  <label className="block text-[10px] font-mono uppercase text-zinc-400 mb-1">
+                    Personal Access Token (PAT)
+                  </label>
+                  <Input
+                    type="text"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    className="h-8 text-xs bg-zinc-950 border-zinc-800 font-mono"
+                    placeholder="pak_dev_terminal_agent"
+                  />
+                </div>
+
+                {/* Mode Toggle */}
+                <div>
+                  <label className="block text-[10px] font-mono uppercase text-zinc-400 mb-1">
+                    Mode Eksekusi
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setMode('semi-autonomous')}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                        mode === 'semi-autonomous'
+                          ? 'bg-indigo-600 border-indigo-500 text-white'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      🤝 Semi-Autonomous (Konfirmasi y/n)
+                    </button>
+                    <button
+                      onClick={() => setMode('autonomous')}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
+                        mode === 'autonomous'
+                          ? 'bg-rose-600 border-rose-500 text-white'
+                          : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      🤖 Full Autonomous (Tanpa Konfirmasi)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Master Prompt Block */}
+              <div className="rounded-xl border border-indigo-500/40 bg-indigo-950/10 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                    <Bot className="h-4 w-4 text-indigo-400" />
+                    Master Prompt Autonomous / Semi-Autonomous
+                  </span>
+                  <Badge variant="emerald" className="text-[10px] font-mono">
+                    {mode === 'semi-autonomous' ? 'Semi-Auto' : 'Full Auto'}
+                  </Badge>
+                </div>
+
+                <div className="relative">
+                  <pre className="p-3 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 font-mono text-[11px] overflow-x-auto whitespace-pre-wrap max-h-72">
+                    {masterPrompt}
+                  </pre>
+                </div>
+
+                <Button
+                  size="lg"
+                  onClick={() => handleCopy(masterPrompt, 'master-prompt')}
+                  className={`w-full h-10 text-xs gap-2 font-bold ${
+                    copiedKey === 'master-prompt'
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md'
+                  }`}
+                >
+                  {copiedKey === 'master-prompt' ? (
+                    <>
+                      <Check className="h-4 w-4" />
+                      ✅ Master Prompt Tersalin! Paste ke OpenCode / Claude Code Sekarang
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" />
+                      ⚡ Salin Master Prompt (1x Copas)
+                    </>
+                  )}
+                </Button>
+
+                <p className="text-[10px] text-zinc-400 italic text-center">
+                  💡 Tip: Buka terminal di folder proyek lokal Anda, jalankan AI Coding Agent, lalu paste prompt ini di awal sesi. Agent akan otomatis loop mengerjakan seluruh task.
+                </p>
+              </div>
+
+              {/* cURL Cheatsheet */}
+              <details className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
+                <summary className="cursor-pointer text-xs font-semibold text-zinc-300 hover:text-zinc-100 select-none">
+                  📖 Cheatsheet cURL Individual (untuk debugging/testing manual)
+                </summary>
+                <div className="mt-3 space-y-2">
+                  {[
+                    {
+                      key: 'curl-next',
+                      label: 'GET Next Task',
+                      cmd: `curl -s -X GET "${baseUrl}/api/agent/tasks/next" -H "Authorization: Bearer ${token}"`,
+                    },
+                    {
+                      key: 'curl-start',
+                      label: 'POST Start Task',
+                      cmd: `curl -s -X POST "${baseUrl}/api/agent/tasks/<TASK_ID>/start" -H "Authorization: Bearer ${token}"`,
+                    },
+                    {
+                      key: 'curl-done',
+                      label: 'POST Complete Task',
+                      cmd: `curl -s -X POST "${baseUrl}/api/agent/tasks/<TASK_ID>/complete" -H "Authorization: Bearer ${token}"`,
+                    },
+                  ].map((item) => (
+                    <div
+                      key={item.key}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <code className="text-[11px] font-mono text-emerald-300 bg-zinc-950 px-2 py-1 rounded border border-zinc-800 flex-1 overflow-x-auto">
+                        {item.cmd}
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCopy(item.cmd, item.key)}
+                        className="h-6 text-[10px] gap-1 text-zinc-400 hover:text-zinc-100 shrink-0"
+                      >
+                        {copiedKey === item.key ? (
+                          <Check className="h-3 w-3 text-emerald-400" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                        {copiedKey === item.key ? 'Tersalin' : 'Salin'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          )}
+
+          {/* TAB CLI */}
+          {activeTab === 'cli' && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-[11px] text-amber-300">
+                ⚠️ <strong>PERHATIAN:</strong> Jalankan perintah di bawah ini di <strong>Terminal shell biasa Anda</strong> (bash/zsh), <strong>BUKAN</strong> di-paste ke dalam chat OpenCode / AI! Jika ingin menyuruh AI Agent koding otomatis, buka <strong>Tab Master Prompt Loop</strong>.
+              </div>
+
               <div className="rounded-xl border border-indigo-500/40 bg-indigo-950/20 p-4 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
                     <Play className="h-3.5 w-3.5 text-indigo-400" />
                     Perintah Cepat 1-Baris (Login &amp; Ambil Task Pertama)
                   </span>
-                  <span className="text-[10px] font-mono text-zinc-400">Jalankan di terminal proyek (~/belajar/pake-ai)</span>
                 </div>
 
                 <div className="relative group">
@@ -201,265 +458,115 @@ ATURAN KETAT UNTUK ANDA:
                 </div>
               </div>
 
-              {/* Step by Step Breakdown */}
               <div className="space-y-3 pt-1">
-                <h3 className="text-xs font-semibold text-zinc-200 uppercase tracking-wider font-mono">
-                  Atau Jalankan Per-Langkah:
-                </h3>
-
-                {/* Step 1 */}
-                <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-white font-mono text-[10px] font-bold">
-                        1
-                      </span>
-                      <span className="font-semibold text-zinc-200">Login Token Agent di Terminal</span>
+                {[
+                  { n: 1, title: 'Login Token Agent', cmd: cliLoginCmd, key: 'login', desc: 'Menyimpan kredensial token ke ~/.project-ai/config.json.' },
+                  { n: 2, title: 'Ambil Task Berikutnya', cmd: cliNextCmd, key: 'next', desc: 'Mengambil task siap-kerjakan dari API port 6655.' },
+                  { n: 3, title: 'Lihat Bounded Context', cmd: cliContextCmd, key: 'context', desc: 'Menampilkan Markdown prompt untuk AI Agent.' },
+                  { n: 4, title: 'Tandai Task Selesai', cmd: cliDoneCmd, key: 'done', desc: 'Mengirim konfirmasi DONE & cek checkpoint gate.' },
+                ].map((step) => (
+                  <div
+                    key={step.key}
+                    className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-white font-mono text-[10px] font-bold">
+                          {step.n}
+                        </span>
+                        <span className="font-semibold text-zinc-200">{step.title}</span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleCopy(step.cmd, step.key)}
+                        className="h-6 text-[10px] gap-1 text-zinc-400 hover:text-zinc-100"
+                      >
+                        {copiedKey === step.key ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                        {copiedKey === step.key ? 'Tersalin' : 'Salin'}
+                      </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleCopy(cliLoginCmd, 'login')}
-                      className="h-6 text-[10px] gap-1 text-zinc-400 hover:text-zinc-100"
-                    >
-                      {copiedKey === 'login' ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                      {copiedKey === 'login' ? 'Tersalin' : 'Salin'}
-                    </Button>
+                    <pre className="p-2 rounded bg-zinc-950 font-mono text-zinc-300 text-[11px] overflow-x-auto">
+                      {step.cmd}
+                    </pre>
+                    <p className="text-[11px] text-zinc-400">{step.desc}</p>
                   </div>
-                  <pre className="p-2 rounded bg-zinc-950 font-mono text-zinc-300 text-[11px] overflow-x-auto">
-                    {cliLoginCmd}
-                  </pre>
-                  <p className="text-[11px] text-zinc-400">
-                    Menyimpan kredensial token ke <code className="text-zinc-300 font-mono">~/.project-ai/config.json</code>.
-                  </p>
-                </div>
-
-                {/* Step 2 */}
-                <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-white font-mono text-[10px] font-bold">
-                        2
-                      </span>
-                      <span className="font-semibold text-zinc-200">Ambil Task Siap-Kerjakan Berikutnya</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleCopy(cliNextCmd, 'next')}
-                      className="h-6 text-[10px] gap-1 text-zinc-400 hover:text-zinc-100"
-                    >
-                      {copiedKey === 'next' ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                      {copiedKey === 'next' ? 'Tersalin' : 'Salin'}
-                    </Button>
-                  </div>
-                  <pre className="p-2 rounded bg-zinc-950 font-mono text-zinc-300 text-[11px] overflow-x-auto">
-                    {cliNextCmd}
-                  </pre>
-                  <p className="text-[11px] text-zinc-400">
-                    Status task di papan Kanban otomatis berpindah ke <span className="text-amber-400 font-semibold font-mono">IN_PROGRESS</span>.
-                  </p>
-                </div>
-
-                {/* Step 3 */}
-                <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-900/40 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-white font-mono text-[10px] font-bold">
-                        3
-                      </span>
-                      <span className="font-semibold text-zinc-200">Tandai Selesai Setelah Koding Lulus Uji</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleCopy(cliDoneCmd, 'done')}
-                      className="h-6 text-[10px] gap-1 text-zinc-400 hover:text-zinc-100"
-                    >
-                      {copiedKey === 'done' ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                      {copiedKey === 'done' ? 'Tersalin' : 'Salin'}
-                    </Button>
-                  </div>
-                  <pre className="p-2 rounded bg-zinc-950 font-mono text-zinc-300 text-[11px] overflow-x-auto">
-                    {cliDoneCmd}
-                  </pre>
-                  <p className="text-[11px] text-zinc-400">
-                    Task berpindah ke <span className="text-emerald-400 font-semibold font-mono">DONE</span> di Kanban, dan sistem otomatis mengecek apakah checkpoint layer tercapai.
-                  </p>
-                </div>
+                ))}
               </div>
             </div>
           )}
 
-          {/* TAB 2: PROMPT SIAP COPAS KE AI */}
+          {/* TAB AGENT PROMPT (single task) */}
           {activeTab === 'agent-prompt' && (
-            <div className="space-y-3">
-              {/* Note Callout */}
-              <div className="rounded-lg border border-emerald-500/40 bg-emerald-950/20 p-3 text-[11px] text-emerald-300">
-                👉 <strong>INI YANG DI-PASTE KE CHAT OPENCODE / CLAUDE CODE / CURSOR!</strong> Salin teks di bawah ini dan tempelkan langsung ke chat OpenCode di terminal Anda. OpenCode akan langsung paham file apa yang harus dibuat dan dikerjakan.
+            <div className="space-y-4">
+              <div className="rounded-lg border border-emerald-500/40 bg-emerald-950/20 p-3 text-[11px] text-emerald-200">
+                💡 <strong>Single Task Prompt:</strong> Cocok untuk sesi AI agent yang ingin menyelesaikan 1 task spesifik saja (tanpa loop otomatis). Untuk sesi loop otomatis berkelanjutan, gunakan <strong>Tab Master Prompt Loop</strong>.
               </div>
 
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                    <Cpu className="h-3.5 w-3.5 text-indigo-400" />
-                    Prompt Bounded Context untuk OpenCode &amp; AI Coding Agent
-                  </h3>
-                  <p className="text-[11px] text-zinc-400">
-                    Salin teks ini dan paste langsung ke chat <span className="text-emerald-300 font-semibold">OpenCode</span>, <span className="text-zinc-200 font-semibold">Claude Code</span>, atau <span className="text-zinc-200 font-semibold">Cursor</span>.
-                  </p>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                    <Wand2 className="h-4 w-4 text-amber-400" />
+                    AI Prompt: {currentTask?.title || 'Pilih task di Kanban'}
+                  </span>
                 </div>
 
+                <pre className="p-3 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 font-mono text-[11px] overflow-x-auto whitespace-pre-wrap max-h-72">
+                  {aiAgentPrompt}
+                </pre>
+
                 <Button
-                  size="sm"
                   onClick={() => handleCopy(aiAgentPrompt, 'ai-prompt')}
-                  className="gap-1.5 text-xs h-8 bg-indigo-600 hover:bg-indigo-500 text-white"
+                  className="w-full h-9 text-xs gap-2 font-medium bg-indigo-600 hover:bg-indigo-500 text-white"
                 >
                   {copiedKey === 'ai-prompt' ? (
                     <>
-                      <Check className="h-3.5 w-3.5 text-emerald-300" />
+                      <Check className="h-3.5 w-3.5" />
                       Prompt Tersalin!
                     </>
                   ) : (
                     <>
                       <Copy className="h-3.5 w-3.5" />
-                      Salin Seluruh Prompt
+                      Salin Prompt AI Agent
                     </>
                   )}
                 </Button>
               </div>
-
-              {currentTask && (
-                <div className="p-2.5 rounded-lg border border-zinc-800 bg-zinc-900/60 flex items-center justify-between text-[11px]">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="font-mono text-[10px]">
-                      {currentTask.layer}
-                    </Badge>
-                    <span className="font-bold text-zinc-200 truncate">{currentTask.title}</span>
-                  </div>
-                  <span className="text-zinc-500 font-mono">#{currentTask.id}</span>
-                </div>
-              )}
-
-              <div className="relative">
-                <textarea
-                  readOnly
-                  rows={12}
-                  value={aiAgentPrompt}
-                  className="w-full font-mono text-[11px] leading-relaxed p-3 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-300 focus:outline-none resize-none selection:bg-indigo-500/30"
-                />
-              </div>
-
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-950/20 p-3 text-[11px] text-emerald-300 flex items-start gap-2">
-                <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Mengapa cara ini aman dari AI Slop?</strong> Prompt ini membatasi file yang boleh diedit
-                  (<em>bounded context</em>) sehingga LLM tidak akan mengacak-acak konfigurasi atau membuat file sampah di luar scope.
-                </span>
-              </div>
             </div>
           )}
 
-          {/* TAB 3: WORKFLOW GUIDE & CHECKPOINTS */}
+          {/* TAB WORKFLOW */}
           {activeTab === 'workflow' && (
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <h3 className="text-xs font-bold text-zinc-100">
-                  Alur Human-in-the-loop &amp; Checkpoint Arsitektur
-                </h3>
-                <p className="text-[11px] text-zinc-400">
-                  Sistem ini membagi pekerjaan dalam 4 layer terurut untuk menjamin integritas kode:
-                </p>
+            <div className="space-y-3">
+              <div className="rounded-lg border border-indigo-500/30 bg-indigo-950/10 p-3 text-xs text-indigo-200">
+                ℹ️ <strong>Alur:</strong> Master Prompt → AI Agent → HTTP cURL ke API → Status berubah di Kanban Real-Time → Loop task berikutnya hingga selesai.
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {[
-                  {
-                    step: '1. DATABASE LAYER',
-                    desc: 'Membuat skema tabel, relasi foreign key, constraint, dan migrasi SQL awal.',
-                    rule: 'Selesaikan semua task DB dulu sebelum masuk ke Backend.',
-                    color: 'border-sky-500/30 bg-sky-950/20 text-sky-300',
-                  },
-                  {
-                    step: '2. BACKEND LAYER',
-                    desc: 'Menulis endpoint API, Server Actions, validasi skema Zod, dan integrasi database.',
-                    rule: 'Membutuhkan database yang sudah valid dan ter-approve.',
-                    color: 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300',
-                  },
-                  {
-                    step: '3. FRONTEND LAYER',
-                    desc: 'Membangun UI interaktif, form, state management Zustand, dan visual feedback.',
-                    rule: 'Menyambungkan antarmuka ke API backend yang sudah stabil.',
-                    color: 'border-indigo-500/30 bg-indigo-950/20 text-indigo-300',
-                  },
-                  {
-                    step: '4. DEVOPS & TESTING',
-                    desc: 'Docker containerization, CI/CD pipeline, dan pengujian end-to-end.',
-                    rule: 'Finalisasi produksi siap deploy.',
-                    color: 'border-amber-500/30 bg-amber-950/20 text-amber-300',
-                  },
-                ].map((item, idx) => (
-                  <div key={idx} className={`p-3 rounded-lg border ${item.color} space-y-1`}>
-                    <div className="font-mono text-xs font-bold tracking-wide">{item.step}</div>
-                    <div className="text-[11px] text-zinc-300">{item.desc}</div>
-                    <div className="text-[10px] text-zinc-400 pt-1 border-t border-zinc-800/60 font-mono">
-                      ↳ {item.rule}
-                    </div>
+              {[
+                { n: 1, title: 'Salin & Paste Master Prompt', desc: 'User menyalin 1 prompt dari SaaS, lalu paste ke AI Coding Agent di terminal lokal.', icon: Sparkles },
+                { n: 2, title: 'Fetch Next Task via cURL', desc: 'AI Agent menjalankan GET /api/agent/tasks/next dan mengekstrak metadata task.', icon: Terminal },
+                { n: 3, title: 'Mark IN_PROGRESS', desc: 'AI Agent POST /api/agent/tasks/:id/start. Kartu di Kanban otomatis pindah.', icon: Play },
+                { n: 4, title: 'Patuhi Bounded Context', desc: 'AI Agent hanya membuat/mengubah file di files_to_create & files_to_modify.', icon: ShieldCheck },
+                { n: 5, title: 'Kode, Tes, Mark DONE', desc: 'Setelah implementasi lolos test_criteria, AI Agent POST /complete. Kartu pindah ke kolom DONE.', icon: CheckCircle2 },
+                { n: 6, title: 'Konfirmasi & Loop', desc: 'Semi-Autonomous: AI bertanya "Lanjut? (y/n)". Full Autonomous: langsung ambil task berikutnya.', icon: Radio },
+              ].map((step) => (
+                <div
+                  key={step.n}
+                  className="flex items-start gap-3 p-3 rounded-lg border border-zinc-800/80 bg-zinc-900/30"
+                >
+                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 shrink-0">
+                    <step.icon className="h-3.5 w-3.5" />
                   </div>
-                ))}
-              </div>
-
-              <div className="rounded-lg border border-amber-500/40 bg-amber-950/20 p-3 text-[11px] text-amber-300 space-y-1">
-                <div className="font-bold flex items-center gap-1.5">
-                  <AlertCircle className="h-3.5 w-3.5" />
-                  Checkpoint Gate Otomatis:
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-200">
+                      Langkah {step.n}: {step.title}
+                    </div>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">{step.desc}</p>
+                  </div>
                 </div>
-                <p className="text-zinc-300">
-                  Saat seluruh task Database berstatus <strong>DONE</strong>, banner checkpoint akan muncul di Kanban.
-                  Anda cukup klik <em>"Approve Checkpoint"</em> untuk membuka izin agen melanjutkan ke layer Backend.
-                </p>
-              </div>
+              ))}
             </div>
           )}
-        </div>
-
-        {/* Modal Footer */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-3.5 border-t border-zinc-800 bg-zinc-900/50">
-          <Link
-            href={`/projects/${projectId}/execute`}
-            className="text-xs font-medium text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors"
-          >
-            <span>Buka Cockpit Eksekusi Layar Penuh</span>
-            <ExternalLink className="h-3 w-3" />
-          </Link>
-
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onClose}
-              className="text-xs h-8 border-zinc-700 text-zinc-300"
-            >
-              Tutup
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => handleCopy(oneLinerCli, 'footer-copy')}
-              className="text-xs h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium"
-            >
-              {copiedKey === 'footer-copy' ? (
-                <>
-                  <Check className="h-3.5 w-3.5" />
-                  Tersalin!
-                </>
-              ) : (
-                <>
-                  <Copy className="h-3.5 w-3.5" />
-                  Salin Perintah CLI Cepat
-                </>
-              )}
-            </Button>
-          </div>
         </div>
       </div>
     </div>
