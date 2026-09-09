@@ -354,7 +354,7 @@ app.get('/api/projects/:id/master-prompt', requireUser, async (req: AuthedReques
 
   const md = `# Master Prompt — AI Agent Loop untuk "${project.name}"
 
-Anda adalah AI Coding Agent otonom. Tugas Anda: mengeksekusi task task project ini secara berurutan menggunakan CLI \`pakeai\`.
+Anda adalah AI Coding Agent otonom. Tugas Anda: mengeksekusi task-task project ini secara berurutan menggunakan CLI \`pakeai\`.
 
 ## Identitas Project
 - Nama: ${project.name}
@@ -388,11 +388,26 @@ npx pakeai context     # baca Markdown bounded context task aktif
 npx pakeai done        # tandai selesai
 \`\`\`
 
+## Setelah Semua Task Selesai
+Setelah semua task DONE, aplikasi siap dijalankan di komputer lokal user:
+
+### Cara Jalankan Aplikasi Hasil Generate:
+1. Buka terminal di folder workspace proyek
+2. Jalankan perintah sesuai stack:
+   - Vite/React: \`npm run dev --port 9999\` atau \`vite --port 9999\`
+   - Next.js: \`npm run dev -- -p 9999\` atau \`next dev -p 9999\`
+   - Create React App: \`PORT=9999 npm start\`
+3. Akses aplikasi di browser: **http://localhost:9999**
+4. Proyek siap dipakai!
+
+**Catatan penting**: Gunakan port **9999** agar tidak bertabrakan dengan pakeai platform yang jalan di port 3455.
+
 ## Aturan Penting
 - **Isolasi project**: agent HANYA boleh membaca task/BRD dari project ini (server menegakkan via token).
 - **Bounded context**: hanya sentuh file di \`files_to_create\` / \`files_to_modify\`. DILARANG ubah file di \`forbidden\`.
 - **Checkpoint gate**: jika setelah \`done\` ada pesan checkpoint, BERHENTI dan minta approval user sebelum lanjut.
 - **Layer transition**: jika layer (DATABASE/BACKEND/FRONTEND) sudah selesai, minta approval user.
+- **Testing**: sebelum panggil \`pakeai done\`, pastikan kode jalan lancar lokal dan test acceptance criteria terpenuhi.
 - **Jika gagal**: laporkan error apa adanya ke user. JANGAN diam-diam fallback.
 
 ## Token Anda

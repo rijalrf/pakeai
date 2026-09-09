@@ -110,6 +110,7 @@ npx pakeai done       # tandai selesai
                 <li>Salin Master Prompt ke AI agent Anda.</li>
                 <li>Jalankan perintah login di terminal.</li>
                 <li>Biarkan AI agent menjalankan loop otomatis.</li>
+                <li>Setelah selesai, buka aplikasi di <strong>http://localhost:9999</strong></li>
               </ol>
             </CardContent>
           </Card>
