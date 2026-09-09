@@ -1,0 +1,148 @@
+#!/usr/bin/env node
+// pakeai CLI — agent loop driver untuk AI coding agent.
+// Tanpa mock fallback. Semua error dilaporkan eksplisit.
+import { Command } from 'commander';
+import { loadConfig, saveConfig, clearConfig } from './config.js';
+import { api, probeHealth, ApiError } from './api-client.js';
+
+const program = new Command();
+program
+  .name('pakeai')
+  .description('CLI agent loop untuk pakeai (AI Planner). Dipakai oleh AI coding agent.')
+  .version('0.1.0');
+
+program
+  .command('login <token>')
+  .description('Simpan Personal Access Token (PAT) dan verifikasi ke server.')
+  .action(async (token: string) => {
+    const cfg = loadConfig();
+    cfg.token = token;
+    saveConfig(cfg);
+    const healthy = await probeHealth(cfg);
+    if (!healthy) {
+      console.error(`Tidak bisa menghubungi server di ${cfg.apiUrl}.`);
+      console.error('Pastikan pakeai API jalan di port 6655.');
+      process.exit(2);
+    }
+    try {
+      const me = await api.whoami(cfg);
+      console.log(`Login berhasil.`);
+      console.log(`Project  : ${me.project.name}`);
+      console.log(`ProjectId: ${me.project.id}`);
+      console.log(`Server   : ${cfg.apiUrl}`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        clearConfig();
+        console.error('Token tidak valid. Jalankan: pakeai login <token>');
+        process.exit(1);
+      }
+      throw e;
+    }
+  });
+
+program
+  .command('whoami')
+  .description('Tampilkan info project dari token saat ini.')
+  .action(async () => {
+    const cfg = loadConfig();
+    const me = await api.whoami(cfg);
+    console.log(JSON.stringify(me, null, 2));
+  });
+
+program
+  .command('next')
+  .description('Ambil task berikutnya. Akan melanjutkan task IN_PROGRESS bila ada.')
+  .action(async () => {
+    const cfg = loadConfig();
+    const out = await api.next(cfg);
+    if (!out.hasTask) {
+      console.log(out.message ?? 'Tidak ada task tersisa.');
+      return;
+    }
+    cfg.activeTaskId = out.task!.id;
+    saveConfig(cfg);
+    console.log(`Task #${out.task!.order} [${out.task!.layer}] ${out.task!.status}`);
+    console.log(`ID    : ${out.task!.id}`);
+    console.log(`Judul : ${out.task!.title}`);
+    if (out.task!.description) console.log(`\n${out.task!.description}`);
+    console.log(`\n-> Lanjut: \`pakeai start\` lalu \`pakeai context\``);
+  });
+
+program
+  .command('start [id]')
+  .description('Tandai task IN_PROGRESS. Default: activeTaskId.')
+  .action(async (id?: string) => {
+    const cfg = loadConfig();
+    const taskId = id ?? cfg.activeTaskId;
+    if (!taskId) {
+      console.error('Tidak ada task aktif. Jalankan: pakeai next');
+      process.exit(1);
+    }
+    const r = await api.start(cfg, taskId);
+    console.log(`Task ${r.taskId} -> ${r.status}`);
+  });
+
+program
+  .command('context [id]')
+  .description('Cetak Markdown bounded context task aktif. WAJIB dibaca AI agent sebelum edit file.')
+  .action(async (id?: string) => {
+    const cfg = loadConfig();
+    const taskId = id ?? cfg.activeTaskId;
+    if (!taskId) {
+      console.error('Tidak ada task aktif. Jalankan: pakeai next');
+      process.exit(1);
+    }
+    const r = await api.context(cfg, taskId);
+    console.log(r.markdown);
+  });
+
+program
+  .command('done [id]')
+  .description('Tandai task selesai. Akan info checkpoint PENDING jika layer selesai.')
+  .action(async (id?: string) => {
+    const cfg = loadConfig();
+    const taskId = id ?? cfg.activeTaskId;
+    if (!taskId) {
+      console.error('Tidak ada task aktif. Jalankan: pakeai next');
+      process.exit(1);
+    }
+    const r = await api.done(cfg, taskId);
+    console.log(`Task ${r.taskId} -> ${r.status}`);
+    if (r.checkpointPending) {
+      console.log(`\n!!! CHECKPOINT PENDING !!!`);
+      console.log(`Layer ${r.layer} selesai. Berhenti dan minta approval user sebelum lanjut ke layer berikutnya.`);
+    } else {
+      console.log(`-> Lanjut: pakeai next`);
+    }
+  });
+
+program
+  .command('logout')
+  .description('Hapus token lokal.')
+  .action(() => {
+    clearConfig();
+    console.log('Token dihapus.');
+  });
+
+program
+  .command('status')
+  .description('Cek koneksi server dan status token.')
+  .action(async () => {
+    const cfg = loadConfig();
+    const healthy = await probeHealth(cfg);
+    console.log(`Server : ${cfg.apiUrl} -> ${healthy ? 'OK' : 'TIDAK TERHUBUNG'}`);
+    console.log(`Token  : ${cfg.token ? 'tersimpan' : 'kosong'}`);
+    if (cfg.activeTaskId) console.log(`Active : ${cfg.activeTaskId}`);
+  });
+
+program.parseAsync(process.argv).catch((e) => {
+  if (e instanceof ApiError) {
+    console.error(`Error [${e.status}]: ${e.message}`);
+    if (e.status === 401) {
+      console.error('Token ditolak. Coba: pakeai login <token>');
+    }
+  } else {
+    console.error('Error:', e instanceof Error ? e.message : e);
+  }
+  process.exit(1);
+});
