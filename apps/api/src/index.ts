@@ -266,6 +266,83 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
 });
 
 // ============================================================
+// Agent endpoint: fetch BRD untuk CLI agent
+// ============================================================
+app.get('/api/agent/brd', requireAgent, async (req: AgentRequest, res) => {
+  const brd = await prisma.brd.findUnique({
+    where: { projectId: req.agent.projectId },
+  });
+  if (!brd) {
+    return res.status(400).json({ error: 'BRD belum ada di project ini. Generate BRD dulu lewat web UI.' });
+  }
+  res.json({ brd });
+});
+
+// ============================================================
+// User endpoint: download BRD sebagai .md file
+// ============================================================
+app.get('/api/projects/:id/brd/download', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: { brd: true },
+  });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+  if (!project.brd) {
+    return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
+  }
+
+  const content = project.brd.content as Record<string, unknown>;
+  const md = [
+    `# Business Requirements Document (${project.name})`,
+    ``,
+    `**Generated:** ${new Date(project.brd.generatedAt).toLocaleString('id-ID')}`,
+    `**Version:** ${project.brd.version}`,
+    ``,
+    `---`,
+    ``,
+    `## Ringkasan`,
+    ``,
+    content.overview ?? `(tidak ada)`,
+    ``,
+    `---`,
+    ``,
+    `## Tujuan`,
+    ``,
+    ...(content.goals?.map((g: string) => `- ${g}`) ?? []),
+    ``,
+    `---`,
+    ``,
+    `## Fitur`,
+    ``,
+    ...(content.features?.map((f: { name: string; description?: string }) =>
+      `### ${f.name}\n${f.description ? f.description : '(tidak ada deskripsi)'}`
+    ) ?? []),
+    ``,
+    `---`,
+    ``,
+    `## Tech Requirements`,
+    ``,
+    ...(content.techRequirements?.map((t: string) => `- ${t}`) ?? []),
+    ``,
+    `---`,
+    ``,
+    `## Non-Functional Requirements`,
+    ``,
+    ...(content.nonFunctional?.map((n: string) => `- ${n}`) ?? []),
+    ``,
+    `---`,
+    ``,
+    `## Out of Scope`,
+    ``,
+    ...(content.outOfScope?.map((o: string) => `- ${o}`) ?? []),
+  ].join('\n');
+
+  res.setHeader('Content-Type', 'text/markdown');
+  res.setHeader('Content-Disposition', `attachment; filename="${project.name.replace(/\s+/g, '_')}_BRD.md"`);
+  res.send(md);
+});
+
+// ============================================================
 // Master prompt untuk user copy-paste
 // ============================================================
 app.get('/api/projects/:id/master-prompt', requireUser, async (req: AuthedRequest, res) => {
@@ -282,7 +359,7 @@ Anda adalah AI Coding Agent otonom. Tugas Anda: mengeksekusi task task project i
 ## Identitas Project
 - Nama: ${project.name}
 - Ide: ${project.idea}
-${project.brd ? `- BRD tersedia di project (lihat dashboard)` : `- BRD: BELUM dibuat — minta user membuatnya lewat tool BRD Generator`}
+${project.brd ? `- BRD: SEDIA — fetch via \`pakeai brd\` atau download manual` : `- BRD: BELUM dibuat — minta user membuatnya lewat tool BRD Generator`}
 
 ## Setup (jalankan 1x di awal)
 1. Install CLI: sudah otomatis via \`npx pakeai\` (tidak perlu install global)
@@ -290,6 +367,14 @@ ${project.brd ? `- BRD tersedia di project (lihat dashboard)` : `- BRD: BELUM di
    \`\`\`
    npx pakeai login {{TOKEN}}
    \`\`\`
+
+## Fetch BRD (lakukan sekali, sebelum loop task)
+Pilih SALAH SATU:
+- **Via CLI** (direkomendasikan):
+  \`\`\`
+  npx pakeai brd
+  \`\`\`
+- **Manual**: download BRD.md dari web UI → save ke disk → paste isi BRD sebagai konteks
 
 ## Loop Eksekusi (ulangi sampai tidak ada task tersisa)
 Untuk SETIAP task, kerjakan langkah ini PERSIS:

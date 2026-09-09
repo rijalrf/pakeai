@@ -10,6 +10,7 @@ import { RoadmapPage } from '@/pages/projects/roadmap';
 import { TasksPage } from '@/pages/projects/tasks';
 import { ExecutePage } from '@/pages/projects/execute';
 import { SettingsPage } from '@/pages/projects/settings';
+import { ReadyPage } from '@/pages/projects/ready';
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { data, isPending } = useSession();
@@ -69,6 +70,14 @@ export function App() {
         element={
           <Protected>
             <TasksPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/projects/:projectId/ready"
+        element={
+          <Protected>
+            <ReadyPage />
           </Protected>
         }
       />

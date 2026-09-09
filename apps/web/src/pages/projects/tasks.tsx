@@ -1,12 +1,12 @@
 // Kanban board: 5 kolom, polling setiap 3 detik.
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { AppShell } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ArrowRight } from 'lucide-react';
 
 type Task = { id: string; title: string; layer: string; status: string; order: number; acceptanceCriteria: string[]; aiContext: { files_to_create?: string[]; files_to_modify?: string[]; forbidden?: string[] } };
 
@@ -27,6 +27,7 @@ const LAYER_COLORS: Record<string, string> = {
 
 export function TasksPage() {
   const { projectId = '' } = useParams();
+  const navigate = useNavigate();
   const qc = useQueryClient();
 
   const q = useQuery({
@@ -56,9 +57,16 @@ export function TasksPage() {
     <AppShell back="/dashboard" title="Task Kanban">
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-muted-foreground">Polling 3 detik. Update status akan terlihat di sini.</p>
-        <Button variant="outline" size="sm" onClick={() => genMut.mutate()} disabled={genMut.isPending}>
-          <RefreshCw className="h-4 w-4" /> Generate Ulang
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => genMut.mutate()} disabled={genMut.isPending}>
+            <RefreshCw className="h-4 w-4 mr-2" /> Generate Ulang
+          </Button>
+          {q.data?.tasks && q.data.tasks.length > 0 && (
+            <Button size="sm" onClick={() => navigate(`/projects/${projectId}/ready`)}>
+              Lanjut ke Eksekusi <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-5 gap-3">
         {COLUMNS.map((col) => (

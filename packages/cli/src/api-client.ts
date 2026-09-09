@@ -50,6 +50,7 @@ export type NextTask = {
 };
 export type ContextResp = { ok: true; taskId: string; markdown: string };
 export type StatusResp = { ok: true; taskId: string; status: string; checkpointPending?: boolean; layer?: string };
+export type BrdResponse = { brd: { id: string; content: unknown; version: number; generatedAt: string } };
 
 export const api = {
   whoami(cfg: Config) {
@@ -66,6 +67,9 @@ export const api = {
   },
   done(cfg: Config, id: string) {
     return request<StatusResp>(cfg, `/api/agent/tasks/${id}/complete`, { method: 'POST' });
+  },
+  brd(cfg: Config) {
+    return request<BrdResponse>(cfg, '/api/agent/brd');
   },
 };
 

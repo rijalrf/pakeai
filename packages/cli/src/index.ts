@@ -3,7 +3,7 @@
 // Tanpa mock fallback. Semua error dilaporkan eksplisit.
 import { Command } from 'commander';
 import { loadConfig, saveConfig, clearConfig } from './config.js';
-import { api, probeHealth, ApiError } from './api-client.js';
+import { api, ApiError, probeHealth } from './api-client.js';
 
 const program = new Command();
 program
@@ -113,6 +113,112 @@ program
       console.log(`Layer ${r.layer} selesai. Berhenti dan minta approval user sebelum lanjut ke layer berikutnya.`);
     } else {
       console.log(`-> Lanjut: pakeai next`);
+    }
+  });
+
+program
+  .command('brd')
+  .description('Tampilkan BRD project dalam format Markdown.')
+  .action(async () => {
+    const cfg = loadConfig();
+    try {
+      const r = await api.brd(cfg);
+      const content: Record<string, unknown> = r.brd.content as unknown as Record<string, unknown>;
+      const mdParts: string[] = [];
+
+      mdParts.push('# Business Requirements Document');
+      mdParts.push('');
+      mdParts.push(`**Generated:** ${new Date(r.brd.generatedAt).toLocaleString('id-ID')}`);
+      mdParts.push(`**Version:** ${r.brd.version}`);
+      mdParts.push('');
+      mdParts.push('---');
+      mdParts.push('');
+      mdParts.push('## Ringkasan');
+      mdParts.push('');
+      const overviewVal = content.overview;
+      mdParts.push(overviewVal != null ? String(overviewVal) : '(tidak ada)');
+      mdParts.push('');
+      mdParts.push('---');
+      mdParts.push('');
+      mdParts.push('## Tujuan');
+      mdParts.push('');
+
+      const goals: string[] = Array.isArray(content.goals)
+        ? content.goals.filter((v): v is string => typeof v === 'string')
+        : [];
+      goals.forEach((g: string) => {
+        mdParts.push(`- ${g}`);
+      });
+      mdParts.push('');
+      mdParts.push('---');
+      mdParts.push('');
+      mdParts.push('## Fitur');
+      mdParts.push('');
+
+      const features: Array<{ name?: unknown; description?: unknown }> = Array.isArray(content.features)
+        ? content.features.filter((v): v is { name?: unknown; description?: unknown } => typeof v === 'object' && v !== null)
+        : [];
+      features.forEach((f: { name?: unknown; description?: unknown }) => {
+        if (typeof f.name === 'string') {
+          mdParts.push(`### ${f.name}`);
+        } else if (f.name != null) {
+          mdParts.push(`### ${String(f.name)}`);
+        }
+        if (typeof f.description === 'string' && f.description) {
+          mdParts.push(f.description);
+        } else {
+          mdParts.push('(tidak ada deskripsi)');
+        }
+        mdParts.push('');
+      });
+
+      mdParts.push('---');
+      mdParts.push('');
+      mdParts.push('## Tech Requirements');
+      mdParts.push('');
+
+      const techReqs: string[] = Array.isArray(content.techRequirements)
+        ? content.techRequirements.filter((v): v is string => typeof v === 'string')
+        : [];
+      techReqs.forEach((t: string) => {
+        mdParts.push(`- ${t}`);
+      });
+      mdParts.push('');
+      mdParts.push('---');
+      mdParts.push('');
+      mdParts.push('## Non-Functional Requirements');
+      mdParts.push('');
+
+      const nonFunc: string[] = Array.isArray(content.nonFunctional)
+        ? content.nonFunctional.filter((v): v is string => typeof v === 'string')
+        : [];
+      nonFunc.forEach((n: string) => {
+        mdParts.push(`- ${n}`);
+      });
+      mdParts.push('');
+      mdParts.push('---');
+      mdParts.push('');
+      mdParts.push('## Out of Scope');
+      mdParts.push('');
+
+      const outOfScope: string[] = Array.isArray(content.outOfScope)
+        ? content.outOfScope.filter((v): v is string => typeof v === 'string')
+        : [];
+      outOfScope.forEach((o: string) => {
+        mdParts.push(`- ${o}`);
+      });
+
+      console.log(mdParts.join('\n'));
+    } catch (e) {
+      if (e instanceof ApiError) {
+        console.error(`Error [${e.status}]: ${e.message}`);
+        if (e.status === 400) {
+          console.error('BRD belum ada di project ini. Generate BRD dulu via web UI.');
+        }
+      } else {
+        console.error('Error:', e instanceof Error ? e.message : e);
+      }
+      process.exit(1);
     }
   });
 
