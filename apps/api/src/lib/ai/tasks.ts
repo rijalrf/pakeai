@@ -48,7 +48,7 @@ Schema JSON (WAJIB):
       "files_to_create": string[],
       "files_to_modify": string[],
       "forbidden": string[],
-      "acceptanceCriteria": string[] (2-5 item, dapat diverifikasi)
+      "acceptanceCriteria": string[] (2-5 item, HARUS dapat diverifikasi via test/browser/manual check)
     }
   ]
 }
@@ -59,7 +59,18 @@ Aturan bounded context:
 - Task layer FRONTEND: bebas di apps/web/src/**, JANGAN sentuh apps/api/**.
 - forbidden WAJIB berisi path di luar layer (mis. BACKEND -> ["apps/web/**", "apps/api/prisma/**"]).
 
-Minimal 1 task per fitur. Urutkan order global. Kembalikan HANYA JSON.`;
+Aturan acceptance criteria (HARUS DIPATUHI):
+- Setiap acceptance criterion HARUS measurable dan testable, bukan subjektif.
+- ❌ SALAH: "Fitur login berhasil" (tidak jelas bagaimana verifikasinya)
+- ✅ BENAR: "Akses http://localhost:9999/login dengan kredensial valid menampilkan halaman dashboard home, URL tetap http://localhost:9999/dashboard"
+- Harus mencakup cara verifikasi: browser check, API response check, database validation, dll.
+
+Wajib pada layer INTEGRATION include minimal 2-3 task khusus ini:
+1. Setup Testing Infrastructure - config jest/vitest + basic test setup scripts
+2. E2E Test Configuration - setup playwright/cypress untuk end-to-end verification
+3. Local Verification Scripts - command npm run dev/start yang user bisa jalankan
+
+Minimal 1 task per fitur. Urutkan order global. Pastikan semua task acceptance criteria testable sebelum submit. Kembalikan HANYA JSON.`;
 
   const out = await generateJson({ system, user, schema: TasksSchema });
   return out.tasks;

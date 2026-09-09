@@ -206,6 +206,13 @@ app.post('/api/agent/tasks/:id/complete', requireAgent, async (req: AgentRequest
   const remainingInLayer = await prisma.task.count({
     where: { projectId: req.agent.projectId, layer: updated.layer, status: { not: 'DONE' } },
   });
+
+  // Khusus FRONTEND layer DONE: trigger APPS_READY_FOR_USE checkpoint untuk verifikasi user
+  const frontendTasksRemaining = await prisma.task.count({
+    where: { projectId: req.agent.projectId, layer: 'FRONTEND', status: { not: 'DONE' } },
+  });
+  let appsReadyCheckpointCreated = false;
+
   let checkpointCreated = false;
   if (remainingInLayer === 0) {
     await prisma.checkpoint.create({
@@ -218,6 +225,30 @@ app.post('/api/agent/tasks/:id/complete', requireAgent, async (req: AgentRequest
       },
     });
     checkpointCreated = true;
+  }
+
+  // Jika semua FRONTEND task selesai dan belum ada checkpoint APPS_READY_FOR_USE
+  if (updated.layer === 'FRONTEND' && frontendTasksRemaining === 0 && !appsReadyCheckpointCreated) {
+    const existingAppsReady = await prisma.checkpoint.findFirst({
+      where: {
+        projectId: req.agent.projectId,
+        type: 'APPS_READY_FOR_USE',
+      },
+    });
+
+    if (!existingAppsReady) {
+      await prisma.checkpoint.create({
+        data: {
+          projectId: req.agent.projectId,
+          type: 'APPS_READY_FOR_USE',
+          layer: 'INTEGRATION',
+          status: 'PENDING',
+          message: 'Semua fitur selesai dibuat! User perlu verifikasi aplikasi jalan di http://localhost:9999 sebelum finalisasi.',
+        },
+      });
+      appsReadyCheckpointCreated = true;
+      checkpointCreated = true;
+    }
   }
 
   res.json({

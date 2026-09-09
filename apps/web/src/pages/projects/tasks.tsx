@@ -6,9 +6,10 @@ import { AppShell } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, ArrowRight } from 'lucide-react';
+import { RefreshCw, ArrowRight, AlertTriangle } from 'lucide-react';
 
 type Task = { id: string; title: string; layer: string; status: string; order: number; acceptanceCriteria: string[]; aiContext: { files_to_create?: string[]; files_to_modify?: string[]; forbidden?: string[] } };
+type Checkpoint = { id: string; type: string; status: string; message: string };
 
 const COLUMNS = [
   { key: 'TODO', label: 'TODO' },
@@ -36,6 +37,12 @@ export function TasksPage() {
     refetchInterval: 3000,
   });
 
+  const checkpointsQ = useQuery({
+    queryKey: ['checkpoints', projectId],
+    queryFn: () => api<{ checkpoints: Checkpoint[] }>(`/api/projects/${projectId}/checkpoints`),
+    enabled: !!projectId && q.data?.tasks.length > 0,
+  });
+
   const genMut = useMutation({
     mutationFn: () => api(`/api/projects/${projectId}/tasks/generate`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks', projectId] }),
@@ -53,8 +60,41 @@ export function TasksPage() {
     (byCol[t.status] ?? byCol.TODO).push(t);
   }
 
+  // Cek apakah semua DATABASE + BACKEND + FRONTEND sudah DONE
+  const allFrontendDone = (() => {
+    if (!q.data?.tasks.length) return false;
+    const layers = ['DATABASE', 'BACKEND', 'FRONTEND'] as const;
+    for (const layer of layers) {
+      const hasNotDone = q.data.tasks.some((t) => t.layer === layer && t.status !== 'DONE');
+      if (hasNotDone) return false;
+    }
+    return true;
+  })();
+
+  // Cek apakah ada APPS_READY_FOR_USE checkpoint pending
+  const appsReadyPending = checkpointsQ.data?.checkpoints.some(
+    (cp) => cp.type === 'APPS_READY_FOR_USE' && cp.status === 'PENDING'
+  );
+
   return (
     <AppShell back="/dashboard" title="Task Kanban">
+      {allFrontendDone && appsReadyPending && (
+        <Card className="mb-4 border-yellow-500 bg-yellow-50">
+          <CardContent className="py-3 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-yellow-700 mt-0.5" />
+            <div className="flex-1">
+              <h4 className="font-semibold text-yellow-900 mb-1">Semua Fitur Selesai!</h4>
+              <p className="text-sm text-yellow-800">
+                Aplikasi siap diverifikasi. Buka tab <strong>Siap Eksekusi</strong> untuk instruksi cara run lokal di <code>http://localhost:9999</code>.
+              </p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => navigate(`/projects/${projectId}/ready`)}>
+              Lihat Instruksi
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-muted-foreground">Polling 3 detik. Update status akan terlihat di sini.</p>
         <div className="flex gap-2">

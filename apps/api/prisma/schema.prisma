@@ -266,7 +266,7 @@ model AgentSession {
 model Checkpoint {
   id        String   @id @default(cuid())
   projectId String
-  type      String   // LAYER_TRANSITION | BRD_APPROVAL | ROADMAP_APPROVAL
+  type      String   // LAYER_TRANSITION | BRD_APPROVAL | ROADMAP_APPROVAL | APPS_READY_FOR_USE
   layer     String?
   status    String   @default("PENDING") // PENDING | APPROVED | REJECTED
   message   String?
