@@ -1,47 +1,43 @@
+// Halaman masuk: satu-satunya metode adalah akun Google.
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
 import { signIn } from '@/lib/auth-client';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 
 export function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function loginWithGoogle() {
     setErr(null);
     setLoading(true);
-    const res = await signIn.email({ email, password });
-    setLoading(false);
-    if (res.error) {
-      setErr(res.error.message ?? 'Login gagal.');
-      return;
+    try {
+      const callbackURL = typeof window !== 'undefined' ? `${window.location.origin}/` : '/';
+      await signIn.social({ provider: 'google', callbackURL });
+      // signIn.social mengalihkan ke halaman persetujuan Google secara otomatis.
+    } catch {
+      setLoading(false);
+      setErr('Gagal memulai login Google. Silakan coba lagi.');
     }
-    navigate('/'); // Redirect to home (not dashboard)
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Masuk ke pakeai</CardTitle>
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">
+            <span className="text-green-600 dark:text-green-400">pake</span>.ai
+          </CardTitle>
+          <CardDescription>
+            Perencana proyek berbasis AI. Masuk dengan akun Google Anda untuk melanjutkan.
+          </CardDescription>
         </CardHeader>
-        <form onSubmit={submit}>
-          <CardContent className="space-y-3">
-            <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            {err && <p className="text-sm text-destructive">{err}</p>}
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Link to="/register" className="text-sm text-muted-foreground">Belum punya akun?</Link>
-            <Button type="submit" disabled={loading}>{loading ? 'Memproses...' : 'Masuk'}</Button>
-          </CardFooter>
-        </form>
+        <CardContent className="space-y-3">
+          <Button className="w-full" onClick={loginWithGoogle} disabled={loading}>
+            {loading ? 'Mengalihkan ke Google...' : 'Masuk dengan Google'}
+          </Button>
+          {err && <p className="text-sm text-destructive text-center">{err}</p>}
+        </CardContent>
       </Card>
     </div>
   );

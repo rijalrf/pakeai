@@ -1,15 +1,13 @@
-// Halaman chat: Brainstorming dengan AI (form terstruktur, streaming disabled)
+// Halaman chat: Brainstorming ide aplikasi dengan AI pake.ai
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Send, Loader2, ArrowRight, RefreshCw } from 'lucide-react';
-import { ChatMessageList } from '@/components/chat/chat-message-list';
+import { Send, Loader2, ArrowRight, RefreshCw, Sparkles, MessageSquare } from 'lucide-react';
 import { ChatBubble } from '@/components/chat/chat-bubble';
 import { StructuredForm } from '@/components/chat/structured-form';
 import { TypingIndicator } from '@/components/chat/typing-indicator';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Label } from '@/components/ui/label';
+import { api } from '@/lib/http';
 
 export type ChatMessage = {
   id: string;
@@ -38,26 +36,24 @@ export function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [showFinishButton, setShowFinishButton] = useState(false);
-  const [formAnswered, setFormAnswered] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Load messages on mount
+  // Load pesan saat mount
   useEffect(() => {
     if (!sessionId) return;
 
     const loadMessages = async () => {
       try {
-        const res = await fetch(`http://localhost:6655/api/chat/sessions/${sessionId}/messages`, {
-          credentials: 'include',
-        });
-        const json = await res.json();
+        const json = await api<{ messages?: any[] }>(`/api/chat/sessions/${sessionId}/messages`);
         const rawMsgs = json.messages || [];
         const msgs = rawMsgs.map((m: any) => ({
           ...m,
           payload: parsePayload(m.payload),
         }));
         setMessages(msgs);
-        if (msgs.some((m: any) => m.kind === 'done')) {
+        const lastMsg = msgs[msgs.length - 1];
+        if (lastMsg?.role === 'assistant' && lastMsg?.kind === 'done') {
           setShowFinishButton(true);
         }
       } catch (err) {
@@ -68,7 +64,7 @@ export function ChatPage() {
     loadMessages();
   }, [sessionId]);
 
-  // Auto-scroll ke bawah
+  // Auto-scroll ke bawah saat ada pesan baru
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
@@ -76,11 +72,12 @@ export function ChatPage() {
   const sendMessage = async () => {
     if (!inputText.trim() || isLoading) return;
 
+    const textToSend = inputText.trim();
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
       kind: 'text',
-      content: inputText,
+      content: textToSend,
       createdAt: new Date(),
     };
 
@@ -88,17 +85,13 @@ export function ChatPage() {
     setInputText('');
     setIsLoading(true);
     setIsTyping(true);
-    setFormAnswered(false);
+    setShowFinishButton(false);
 
     try {
-      const res = await fetch(`http://localhost:6655/api/chat/sessions/${sessionId}/messages`, {
+      const aiResponse = await api<any>(`/api/chat/sessions/${sessionId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ content: inputText }),
+        body: JSON.stringify({ content: textToSend }),
       });
-
-      const aiResponse = await res.json();
 
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
@@ -111,11 +104,7 @@ export function ChatPage() {
 
       setMessages((prev) => [...prev, aiMessage]);
       setIsTyping(false);
-
-      // Jika kind="done", tampilkan tombol Lanjut
-      if (aiResponse.kind === 'done') {
-        setShowFinishButton(true);
-      }
+      setShowFinishButton(aiResponse.kind === 'done');
     } catch (err) {
       console.error('Error mengirim pesan:', err);
       setIsTyping(false);
@@ -128,12 +117,11 @@ export function ChatPage() {
   const retryLastMessage = async () => {
     setIsLoading(true);
     setIsTyping(true);
+    setShowFinishButton(false);
     try {
-      const res = await fetch(`http://localhost:6655/api/chat/sessions/${sessionId}/retry`, {
+      const aiResponse = await api<any>(`/api/chat/sessions/${sessionId}/retry`, {
         method: 'POST',
-        credentials: 'include',
       });
-      const aiResponse = await res.json();
       setMessages((prev) => {
         const next = [...prev];
         if (next.length > 0 && next[next.length - 1].role === 'assistant') {
@@ -151,9 +139,7 @@ export function ChatPage() {
           },
         ];
       });
-      if (aiResponse.kind === 'done') {
-        setShowFinishButton(true);
-      }
+      setShowFinishButton(aiResponse.kind === 'done');
     } catch (err) {
       console.error('Error saat retry:', err);
     } finally {
@@ -163,7 +149,6 @@ export function ChatPage() {
   };
 
   const handleFormSubmit = async (answers: Record<string, string>) => {
-    // Serialisasi jawaban form jadi text untuk dikirim ke AI
     const serialized = Object.entries(answers)
       .map(([key, value]) => `${key}: ${value}`)
       .join(', ');
@@ -177,19 +162,15 @@ export function ChatPage() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    setFormAnswered(true);
     setIsLoading(true);
     setIsTyping(true);
+    setShowFinishButton(false);
 
     try {
-      const res = await fetch(`http://localhost:6655/api/chat/sessions/${sessionId}/messages`, {
+      const aiResponse = await api<any>(`/api/chat/sessions/${sessionId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ content: serialized, formAnswers: answers }),
       });
-
-      const aiResponse = await res.json();
 
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
@@ -202,10 +183,7 @@ export function ChatPage() {
 
       setMessages((prev) => [...prev, aiMessage]);
       setIsTyping(false);
-
-      if (aiResponse.kind === 'done') {
-        setShowFinishButton(true);
-      }
+      setShowFinishButton(aiResponse.kind === 'done');
     } catch (err) {
       console.error('Error mengirim jawaban form:', err);
       setIsTyping(false);
@@ -215,28 +193,24 @@ export function ChatPage() {
   };
 
   const finalizeProject = async () => {
-    setShowFinishButton(false);
-    setIsLoading(true);
+    setIsFinalizing(true);
 
     try {
-      const res = await fetch(`http://localhost:6655/api/chat/sessions/${sessionId}/finalize`, {
+      const json = await api<{ projectId?: string }>(`/api/chat/sessions/${sessionId}/finalize`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
       });
 
-      const json = await res.json();
       if (json.projectId) {
         navigate(`/projects/${json.projectId}/interview`);
       } else {
+        setIsFinalizing(false);
         console.error('Gagal finalisasi project:', json);
         alert('Terjadi kesalahan saat membuat project.');
       }
     } catch (err) {
+      setIsFinalizing(false);
       console.error('Error finalisasi:', err);
       alert('Terjadi kesalahan saat membuat project.');
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -248,95 +222,149 @@ export function ChatPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex flex-col">
-      {/* Header kecil untuk chat */}
-      <div className="border-b px-6 py-3 bg-muted/50">
-        <h2 className="font-medium text-foreground">Brainstorming Ide</h2>
-        <p className="text-sm text-muted-foreground">Ceritakan ide aplikasi Anda ke pake.ai</p>
-      </div>
+    <div className="min-h-[calc(100vh-4rem)] flex flex-col bg-background">
+      {/* Tampilan awal: Jika belum ada pesan, kolom chat muncul di tengah layar */}
+      {messages.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-6 py-12">
+          <div className="max-w-2xl w-full text-center space-y-6">
+            <div className="space-y-2">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 text-primary mb-2">
+                <Sparkles className="h-6 w-6" />
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
+                Mulai Brainstorming Ide
+              </h1>
+              <p className="text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
+                Ceritakan konsep, fitur utama, atau masalah yang ingin diselesaikan oleh aplikasi Anda.
+                AI pake.ai akan membantu memperjelas kebutuhan sebelum disusun menjadi BRD.
+              </p>
+            </div>
 
-      {/* Konten chat */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="max-w-3xl mx-auto space-y-4">
-          {messages.map((msg) => (
-            <div key={msg.id} className="space-y-2">
-              <ChatBubble message={msg} />
-              {msg.role === 'assistant' && msg.content.includes('Maaf, saya mengalami kesalahan') && (
-                <div className="flex justify-start">
+            {/* Kotak chat di tengah */}
+            <div className="rounded-xl border border-border bg-card p-3 shadow-sm focus-within:ring-1 focus-within:ring-primary text-left transition-all">
+              <Textarea
+                placeholder="Contoh: Saya ingin buat aplikasi manajemen toko kelontong dengan kasir POS dan inventaris barang..."
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isLoading}
+                rows={3}
+                className="resize-none border-0 focus-visible:ring-0 shadow-none p-2 text-sm bg-transparent"
+                autoFocus
+              />
+              <div className="flex items-center justify-between pt-2 border-t border-border mt-2">
+                <span className="text-[11px] text-muted-foreground">
+                  Tekan <kbd className="px-1 py-0.5 rounded bg-muted font-mono text-[10px]">Enter</kbd> untuk kirim, <kbd className="px-1 py-0.5 rounded bg-muted font-mono text-[10px]">Shift+Enter</kbd> untuk baris baru
+                </span>
+                <Button
+                  onClick={sendMessage}
+                  disabled={isLoading || !inputText.trim()}
+                  size="sm"
+                  className="gap-1.5"
+                >
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  Mulai
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Tampilan percakapan: list pesan di atas, input di bawah dalam wrap container */
+        <>
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
+            <div className="max-w-4xl mx-auto space-y-4">
+              {messages.map((msg) => (
+                <div key={msg.id} className="space-y-2">
+                  <ChatBubble message={msg} />
+                  {msg.role === 'assistant' && msg.content.includes('Maaf, saya mengalami kesalahan') && (
+                    <div className="flex justify-start ml-11">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={retryLastMessage}
+                        disabled={isLoading}
+                        className="gap-2 text-xs"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        Coba Lagi
+                      </Button>
+                    </div>
+                  )}
+                  {msg.kind === 'form' && msg.payload && (
+                    <div className="ml-11 max-w-2xl">
+                      <StructuredForm
+                        questions={msg.payload.questions}
+                        onSubmit={handleFormSubmit}
+                        disabled={isLoading}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {isTyping && <TypingIndicator />}
+
+              {showFinishButton && (
+                <div className="flex flex-col items-center gap-3 pt-6 pb-2 text-center">
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 max-w-lg">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Rancangan awal sudah siap. Anda masih bisa melanjutkan chat di bawah jika ada yang ingin dikonfirmasi atau diubah, atau langsung klik tombol di bawah untuk masuk ke tahap interview.
+                    </p>
+                  </div>
                   <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={retryLastMessage}
-                    disabled={isLoading}
-                    className="gap-2 text-xs"
+                    size="lg"
+                    onClick={finalizeProject}
+                    disabled={isLoading || isFinalizing}
+                    className="gap-2 font-medium"
                   >
-                    <RefreshCw className="h-3 w-3" />
-                    Coba Lagi
+                    {isFinalizing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ArrowRight className="h-4 w-4" />
+                    )}
+                    Lanjut ke Interview
                   </Button>
                 </div>
               )}
-              {msg.kind === 'form' && msg.payload && (
-                <StructuredForm
-                  questions={msg.payload.questions}
-                  onSubmit={handleFormSubmit}
-                  disabled={isLoading || formAnswered}
-                />
-              )}
+
+              <div ref={scrollRef} />
             </div>
-          ))}
-
-          {isTyping && <TypingIndicator />}
-
-          {showFinishButton && (
-            <div className="flex justify-center pt-4">
-              <Button
-                size="lg"
-                onClick={finalizeProject}
-                disabled={isLoading}
-                className="gap-2"
-              >
-                {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ArrowRight className="h-4 w-4" />
-                )}
-                Lanjut ke Interview
-              </Button>
-            </div>
-          )}
-
-          {/* Hidden div untuk auto-scroll */}
-          <div ref={scrollRef} />
-        </div>
-      </div>
-
-      {/* Input area */}
-      <div className="border-t px-6 py-4 bg-background">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex gap-3 items-start">
-            <Textarea
-              placeholder="Tulis pesan Anda... (Shift+Enter untuk baris baru)"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isLoading || showFinishButton}
-              rows={3}
-              className="flex-1 resize-none"
-            />
-            <Button
-              onClick={sendMessage}
-              disabled={isLoading || showFinishButton || !inputText.trim()}
-              size="icon"
-              className="shrink-0"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Tekan Enter untuk kirim, Shift+Enter untuk baris baru
-          </p>
-        </div>
-      </div>
+
+          {/* Input area yang dibungkus container */}
+          <div className="border-t border-border px-4 sm:px-6 py-4 bg-background">
+            <div className="max-w-4xl mx-auto">
+              <div className="flex gap-3 items-end rounded-xl border border-border bg-card p-2 shadow-sm focus-within:ring-1 focus-within:ring-primary">
+                <Textarea
+                  placeholder={
+                    showFinishButton
+                      ? 'Masih ada yang ingin dikonfirmasi atau diubah? Ketik di sini...'
+                      : 'Tulis pesan Anda... (Shift+Enter untuk baris baru)'
+                  }
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={isLoading}
+                  rows={2}
+                  className="flex-1 resize-none border-0 focus-visible:ring-0 shadow-none p-2 text-sm bg-transparent"
+                />
+                <Button
+                  onClick={sendMessage}
+                  disabled={isLoading || !inputText.trim()}
+                  size="icon"
+                  className="shrink-0 mb-0.5"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-2 text-center">
+                Tekan Enter untuk kirim, Shift+Enter untuk baris baru
+              </p>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

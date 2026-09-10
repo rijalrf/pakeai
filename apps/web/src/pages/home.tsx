@@ -1,5 +1,6 @@
 // Halaman awal baru: ganti dashboard, hanya ada teks tengah + 1 card fitur BRD
 import { useNavigate } from 'react-router-dom';
+import { api } from '@/lib/http';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FileText } from 'lucide-react';
@@ -12,12 +13,9 @@ export function HomePage() {
   const createChatSession = async () => {
     setCreatingSession(true);
     try {
-      const res = await fetch('http://localhost:6655/api/chat/sessions', {
+      const json = await api<{ sessionId: string }>('/api/chat/sessions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
       });
-      const json = await res.json();
       if (json.sessionId) {
         navigate(`/chat/${json.sessionId}`);
       } else {

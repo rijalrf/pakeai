@@ -11,5 +11,7 @@ export default defineConfig({
     port: 3455,
     strictPort: true,
     host: true,
+    // Izinkan akses lewat domain tunnel Cloudflare (selain localhost).
+    allowedHosts: ['pakeai.mrijal.my.id'],
   },
 });

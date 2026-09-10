@@ -1,10 +1,25 @@
-// Tree Diagram page: Hierarki App → Fitur → Sub-fitur → Task (lihat saja, tidak edit)
-import { useEffect, useState } from 'react';
+// Tree Diagram page: Visualisasi diagram arsitektur pohon modern horizontal (full-width & interaktif)
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowRight, FolderTree } from 'lucide-react';
+import {
+  Loader2,
+  ArrowRight,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  X,
+  Layers,
+  ChevronRight,
+  Sparkles,
+  Laptop,
+  CheckCircle2,
+  ListTree,
+} from 'lucide-react';
+import { api } from '@/lib/http';
+import { cn } from '@/lib/utils';
 
 type TreeNode = {
   id: string;
@@ -15,32 +30,45 @@ type TreeNode = {
   order: number;
 };
 
+type ProcessedNode = TreeNode & {
+  children: ProcessedNode[];
+  parent?: ProcessedNode;
+  level: number;
+  leafCount: number;
+  x: number;
+  y: number;
+};
+
 export function TreePage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const [nodes, setNodes] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [selectedNode, setSelectedNode] = useState<ProcessedNode | null>(null);
+  const [viewMode, setViewMode] = useState<'architecture' | 'full'>('architecture');
 
-  // Load atau generate tree on mount
+  // Pan dan Zoom state
+  const [zoom, setZoom] = useState(0.95);
+  const [pan, setPan] = useState({ x: 40, y: 30 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Load atau generate tree
   useEffect(() => {
     if (!projectId) return;
 
     const loadOrGenerateTree = async () => {
       try {
-        const res = await fetch(`http://localhost:6655/api/projects/${projectId}/tree`, {
-          credentials: 'include',
-        });
-        const json = await res.json();
-
+        const json = await api<{ nodes?: TreeNode[] }>(`/api/projects/${projectId}/tree`);
         if (json.nodes && json.nodes.length > 0) {
           setNodes(json.nodes);
         } else {
-          // Auto generate jika kosong
           await generateTree();
         }
       } catch (err) {
-        console.error('Gagal load tree:', err);
+        console.error('Gagal memuat tree:', err);
       } finally {
         setLoading(false);
       }
@@ -54,167 +82,579 @@ export function TreePage() {
     setGenerating(true);
 
     try {
-      const res = await fetch(`http://localhost:6655/api/projects/${projectId}/tree/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-      });
-
-      if (res.ok) {
-        const refreshRes = await fetch(`http://localhost:6655/api/projects/${projectId}/tree`, {
-          credentials: 'include',
-        });
-        const refreshJson = await refreshRes.json();
-        setNodes(refreshJson.nodes || []);
-      } else {
-        console.warn('Generate tree gagal');
-      }
+      await api(`/api/projects/${projectId}/tree/generate`, { method: 'POST' });
+      const refresh = await api<{ nodes?: TreeNode[] }>(`/api/projects/${projectId}/tree`);
+      setNodes(refresh.nodes || []);
     } catch (err) {
-      console.error('Error generating tree:', err);
+      console.error('Error generate tree:', err);
+      alert('Gagal membuat diagram struktur aplikasi.');
     } finally {
       setGenerating(false);
       setLoading(false);
     }
   };
 
-  // Build tree structure dari flat nodes
-  const buildTree = () => {
-    const nodeMap = new Map<string, TreeNode & { children?: TreeNode[] }>();
-    const roots: TreeNode[] = [];
-
-    // Initialize all nodes
-    for (const node of nodes) {
-      nodeMap.set(node.id, { ...node, children: [] });
+  // Hitung tata letak pohon horizontal dengan kurva bezier modern
+  const layout = useMemo(() => {
+    if (!nodes || nodes.length === 0) {
+      return { roots: [], allNodes: [], lines: [], width: 1200, height: 700, nodeWidth: 240, nodeHeight: 76 };
     }
 
-    // Connect children
-    for (const node of nodes) {
-      if (node.parentId) {
-        const parent = nodeMap.get(node.parentId);
-        if (parent) {
-          parent.children?.push(nodeMap.get(node.id)!);
-        }
+    // Filter node berdasarkan mode tampilan
+    const filteredRaw = nodes.filter((n) => {
+      if (viewMode === 'architecture') {
+        return n.kind === 'app' || n.kind === 'feature' || n.kind === 'subfeature';
+      }
+      return true;
+    });
+
+    const nodeMap = new Map<string, ProcessedNode>();
+    for (const n of filteredRaw) {
+      nodeMap.set(n.id, {
+        ...n,
+        children: [],
+        level: 0,
+        leafCount: 1,
+        x: 0,
+        y: 0,
+      });
+    }
+
+    // Hubungkan relasi parent-child
+    const roots: ProcessedNode[] = [];
+    for (const n of filteredRaw) {
+      const current = nodeMap.get(n.id)!;
+      if (n.parentId && nodeMap.has(n.parentId)) {
+        const parent = nodeMap.get(n.parentId)!;
+        current.parent = parent;
+        parent.children.push(current);
       } else {
-        roots.push(nodeMap.get(node.id)!);
+        roots.push(current);
       }
     }
 
-    return { roots, nodeMap };
+    // 1. Hitung bobot vertikal (leaf count)
+    function computeLeafCount(node: ProcessedNode): number {
+      if (node.children.length === 0) {
+        node.leafCount = 1;
+        return 1;
+      }
+      node.leafCount = node.children.reduce((acc, child) => acc + computeLeafCount(child), 0);
+      return node.leafCount;
+    }
+
+    for (const root of roots) {
+      computeLeafCount(root);
+    }
+
+    // 2. Tentukan posisi node (x, y)
+    const nodeWidth = 240;
+    const nodeHeight = 76;
+    const gapX = 120;
+    const gapY = 22;
+    const slotHeight = nodeHeight + gapY;
+
+    function assignPositions(node: ProcessedNode, startY: number, level: number) {
+      node.level = level;
+      node.x = level * (nodeWidth + gapX);
+
+      if (node.children.length === 0) {
+        node.y = startY + nodeHeight / 2;
+      } else {
+        let currentY = startY;
+        for (const child of node.children) {
+          assignPositions(child, currentY, level + 1);
+          currentY += child.leafCount * slotHeight;
+        }
+        const firstChildY = node.children[0].y;
+        const lastChildY = node.children[node.children.length - 1].y;
+        node.y = (firstChildY + lastChildY) / 2;
+      }
+    }
+
+    let startRootY = 30;
+    for (const root of roots) {
+      assignPositions(root, startRootY, 0);
+      startRootY += root.leafCount * slotHeight + gapY;
+    }
+
+    // 3. Kumpulkan garis penghubung dan seluruh node
+    const lines: Array<{ id: string; x1: number; y1: number; x2: number; y2: number }> = [];
+    const allProcessed: ProcessedNode[] = [];
+
+    function collectLinesAndNodes(node: ProcessedNode) {
+      allProcessed.push(node);
+      for (const child of node.children) {
+        lines.push({
+          id: `${node.id}-${child.id}`,
+          x1: node.x + nodeWidth,
+          y1: node.y,
+          x2: child.x,
+          y2: child.y,
+        });
+        collectLinesAndNodes(child);
+      }
+    }
+
+    for (const root of roots) {
+      collectLinesAndNodes(root);
+    }
+
+    let maxX = 0;
+    let maxY = 0;
+    for (const node of allProcessed) {
+      if (node.x + nodeWidth > maxX) maxX = node.x + nodeWidth;
+      if (node.y + nodeHeight > maxY) maxY = node.y + nodeHeight;
+    }
+
+    return {
+      roots,
+      allNodes: allProcessed,
+      lines,
+      width: Math.max(maxX + 160, 1400),
+      height: Math.max(maxY + 140, 750),
+      nodeWidth,
+      nodeHeight,
+    };
+  }, [nodes, viewMode]);
+
+  // Handler Pan (Drag Canvas)
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.tree-node-card')) return;
+    setIsPanning(true);
+    setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
   };
 
-  // Render tree recursively
-  const renderNode = (node: any, level: number = 0) => {
-    const colorClass =
-      node.kind === 'app'
-        ? 'border-green-600 dark:border-green-400 bg-green-50 dark:bg-green-950/10'
-        : node.kind === 'feature'
-        ? 'border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-950/10'
-        : node.kind === 'subfeature'
-        ? 'border-purple-600 dark:border-purple-400 bg-purple-50 dark:bg-purple-950/10'
-        : 'border-orange-600 dark:border-orange-400 bg-orange-50 dark:bg-orange-950/10';
-
-    return (
-      <div key={node.id} className="space-y-2" style={{ marginLeft: `${level * 24}px` }}>
-        <Card className={`border-2 ${colorClass}`}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Badge variant="outline" className="text-xs">
-                {node.kind.toUpperCase()}
-              </Badge>
-              {node.label}
-            </CardTitle>
-          </CardHeader>
-          {node.children && node.children.length > 0 && (
-            <CardContent className="pt-0">
-              {node.children.map((child: any) => renderNode(child, level + 1))}
-            </CardContent>
-          )}
-        </Card>
-      </div>
-    );
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isPanning) return;
+    setPan({
+      x: e.clientX - panStart.x,
+      y: e.clientY - panStart.y,
+    });
   };
 
-  const { roots } = buildTree();
+  const handleMouseUp = () => {
+    setIsPanning(false);
+  };
+
+  const handleZoom = (delta: number) => {
+    setZoom((prev) => Math.min(Math.max(Number((prev + delta).toFixed(2)), 0.4), 1.8));
+  };
+
+  const handleResetView = () => {
+    setZoom(0.95);
+    setPan({ x: 40, y: 30 });
+  };
+
+  const getKindBadge = (kind: TreeNode['kind']) => {
+    switch (kind) {
+      case 'app':
+        return { label: 'Aplikasi', color: 'bg-primary/20 text-primary border-primary/30' };
+      case 'feature':
+        return { label: 'Fitur Utama', color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' };
+      case 'subfeature':
+        return { label: 'Sub-Fitur', color: 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30' };
+      case 'task':
+        return { label: 'Task Teknis', color: 'bg-muted text-muted-foreground border-border' };
+      case 'subtask':
+        return { label: 'Sub-Task', color: 'bg-muted/60 text-muted-foreground border-border/60' };
+    }
+  };
 
   if (loading || generating) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] px-6 py-6">
-        <div className="max-w-5xl mx-auto space-y-6">
-          {/* Skeleton header */}
-          <div className="flex items-center gap-3 mb-6">
+      <div className="w-full space-y-6">
+        <Card className="border-border">
+          <CardContent className="h-[650px] flex flex-col items-center justify-center space-y-4">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <div className="space-y-2 flex-1">
-              <div className="h-7 bg-muted w-1/3 rounded animate-pulse" />
-              <div className="h-4 bg-muted w-1/4 rounded animate-pulse" />
+            <div className="text-center space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                Menyusun diagram struktur arsitektur aplikasi...
+              </p>
+              <p className="text-xs text-muted-foreground">
+                AI sedang memetakan hierarki pohon fitur dan rincian modul teknis
+              </p>
             </div>
-          </div>
-
-          {/* Skeleton diagram */}
-          <Card>
-            <CardHeader>
-              <div className="h-6 bg-muted w-1/4 rounded animate-pulse" />
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="pl-4 border-l-2 border-muted p-4">
-                  <div className="h-12 bg-muted rounded animate-pulse" />
-                  {i < 3 && (
-                    <div className="pl-8 mt-2 space-y-2">
-                      <div className="h-10 bg-muted rounded animate-pulse" />
-                      <div className="h-10 bg-muted rounded animate-pulse" />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-6 py-6">
-      {/* Header */}
-      <div className="max-w-5xl mx-auto mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold flex items-center gap-2">
-              <FolderTree className="h-6 w-6 text-green-600 dark:text-green-400" />
-              Struktur Aplikasi
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Hierarki fitur dan tugas yang akan diimplementasikan
-            </p>
+    <div className="w-full space-y-5">
+      {/* Toolbar Kontrol Level & Aksi */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-xs px-2.5 py-1 font-normal">
+            Total {nodes.length} Simpul
+          </Badge>
+          <span className="text-xs text-muted-foreground">
+            Klik simpul untuk melihat rincian detail spesifikasi
+          </span>
+        </div>
+
+        {/* Toolbar Kontrol Level & Aksi */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Switcher Level */}
+          <div className="inline-flex rounded-lg border border-border p-1 bg-muted/40 text-xs">
+            <button
+              type="button"
+              onClick={() => setViewMode('architecture')}
+              className={cn(
+                'px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1.5',
+                viewMode === 'architecture'
+                  ? 'bg-background text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Layers className="h-3.5 w-3.5 text-primary" />
+              <span>Arsitektur Fitur</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('full')}
+              className={cn(
+                'px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1.5',
+                viewMode === 'full'
+                  ? 'bg-background text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <ListTree className="h-3.5 w-3.5" />
+              <span>Semua Task ({nodes.length})</span>
+            </button>
           </div>
-          {!roots.length && !generating && (
-            <Button onClick={generateTree} size="sm" className="gap-2">
-              Generate Structure
-            </Button>
-          )}
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={generateTree}
+            disabled={generating}
+            className="gap-1.5 text-xs h-9"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
+            <span>Generate Ulang</span>
+          </Button>
+
+          <Button
+            size="sm"
+            onClick={() => navigate(`/projects/${projectId}/board`)}
+            className="gap-2 text-xs h-9 font-medium"
+          >
+            <span>Lanjut ke Board Task</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
 
-      {/* Tree Diagram */}
-      <div className="max-w-5xl mx-auto pb-8 min-h-[300px]">
-        {roots.length > 0 ? (
-          roots.map((root: any) => renderNode(root))
-        ) : (
-          <Card>
-            <CardContent className="py-16 text-center text-muted-foreground">
-              Struktur belum ada. Klik "Generate Structure".
-            </CardContent>
-          </Card>
-        )}
+      {/* Kanvas Diagram Pohon Modern (Lebar Penuh & Interaktif) */}
+      <div className="relative border border-border/80 rounded-2xl bg-card overflow-hidden shadow-xs">
+        {/* Floating Controls HUD (Kanan Atas) */}
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-background/85 backdrop-blur-md border border-border/80 p-1.5 rounded-xl shadow-md">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => handleZoom(0.15)}
+            className="h-8 w-8 hover:bg-accent"
+            title="Perbesar (Zoom In)"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => handleZoom(-0.15)}
+            className="h-8 w-8 hover:bg-accent"
+            title="Perkecil (Zoom Out)"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <div className="h-4 w-px bg-border mx-0.5" />
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={handleResetView}
+            className="h-8 w-8 hover:bg-accent"
+            title="Reset Posisi & Skala"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </Button>
+          <span className="text-xs text-muted-foreground px-2 font-mono font-medium">
+            {Math.round(zoom * 100)}%
+          </span>
+        </div>
+
+        {/* Floating Hint (Kiri Bawah) */}
+        <div className="absolute bottom-4 left-4 z-10 pointer-events-none text-xs text-muted-foreground bg-background/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-border/70 shadow-xs flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-primary" />
+          <span>Geser kanvas (drag) untuk bernavigasi • Klik kartu untuk rincian</span>
+        </div>
+
+        {/* Viewport Drag & Zoom */}
+        <div
+          ref={containerRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          className={cn(
+            'h-[720px] w-full overflow-hidden select-none relative',
+            isPanning ? 'cursor-grabbing' : 'cursor-grab'
+          )}
+        >
+          <div
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: '0 0',
+              width: `${layout.width}px`,
+              height: `${layout.height}px`,
+            }}
+            className="relative transition-transform duration-75 ease-out"
+          >
+            {/* Background Grid Pattern Modern */}
+            <svg
+              className="absolute inset-0 pointer-events-none opacity-40 dark:opacity-30"
+              width={layout.width}
+              height={layout.height}
+            >
+              <defs>
+                <pattern id="tree-dot-grid" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+                  <circle cx="2" cy="2" r="1.2" className="fill-foreground/20" />
+                </pattern>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#tree-dot-grid)" />
+            </svg>
+
+            {/* Layer Garis Bezier Penghubung Modern */}
+            <svg
+              className="absolute inset-0 pointer-events-none"
+              width={layout.width}
+              height={layout.height}
+              style={{ overflow: 'visible' }}
+            >
+              {layout.lines.map((line) => {
+                const dx = (line.x2 - line.x1) * 0.5;
+                const pathD = `M ${line.x1} ${line.y1} C ${line.x1 + dx} ${line.y1}, ${line.x2 - dx} ${line.y2}, ${line.x2} ${line.y2}`;
+
+                return (
+                  <g key={line.id}>
+                    {/* Bayangan garis halus */}
+                    <path
+                      d={pathD}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      className="text-primary/10 dark:text-primary/15"
+                    />
+                    {/* Garis utama bezier */}
+                    <path
+                      d={pathD}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      className="text-border dark:text-border hover:text-primary transition-colors"
+                    />
+                    {/* Titik anchor di ujung anak */}
+                    <circle
+                      cx={line.x2}
+                      cy={line.y2}
+                      r="3.5"
+                      className="fill-primary stroke-background"
+                      strokeWidth="1.5"
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+
+            {/* Layer Kartu Node Interaktif Modern */}
+            {layout.allNodes.map((node) => {
+              const badge = getKindBadge(node.kind);
+              const isApp = node.kind === 'app';
+              const isFeature = node.kind === 'feature';
+
+              return (
+                <div
+                  key={node.id}
+                  onClick={() => setSelectedNode(node)}
+                  style={{
+                    position: 'absolute',
+                    left: `${node.x}px`,
+                    top: `${node.y - (layout.nodeHeight || 76) / 2}px`,
+                    width: `${layout.nodeWidth || 240}px`,
+                    height: `${layout.nodeHeight || 76}px`,
+                  }}
+                  className={cn(
+                    'tree-node-card cursor-pointer rounded-xl p-3.5 flex flex-col justify-between transition-all duration-200',
+                    'hover:-translate-y-0.5 hover:shadow-lg active:scale-[0.98]',
+                    isApp
+                      ? 'bg-gradient-to-br from-primary to-primary/90 text-primary-foreground border border-primary/50 shadow-md shadow-primary/20 ring-1 ring-primary/30'
+                      : isFeature
+                      ? 'bg-card hover:bg-accent/40 text-card-foreground border-2 border-primary/40 hover:border-primary shadow-xs hover:shadow-md'
+                      : 'bg-card hover:bg-accent/40 text-card-foreground border border-border hover:border-primary/50 shadow-2xs hover:shadow-sm'
+                  )}
+                  title={`${badge.label}: ${node.label}`}
+                >
+                  {/* Header Kartu Node */}
+                  <div className="flex items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {isApp ? (
+                        <Laptop className="h-3.5 w-3.5 shrink-0 opacity-90" />
+                      ) : isFeature ? (
+                        <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      ) : (
+                        <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span
+                        className={cn(
+                          'text-[10px] uppercase font-semibold tracking-wider truncate',
+                          isApp ? 'text-primary-foreground/90' : 'text-primary'
+                        )}
+                      >
+                        {badge.label}
+                      </span>
+                    </div>
+
+                    {node.children.length > 0 && (
+                      <span
+                        className={cn(
+                          'text-[10px] px-1.5 py-0.5 rounded-full font-mono font-medium',
+                          isApp
+                            ? 'bg-primary-foreground/20 text-primary-foreground'
+                            : 'bg-muted text-muted-foreground'
+                        )}
+                      >
+                        {node.children.length} sub
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Judul Node */}
+                  <div
+                    className={cn(
+                      'text-xs font-semibold leading-snug line-clamp-2 break-words',
+                      isApp ? 'text-primary-foreground' : 'text-foreground'
+                    )}
+                  >
+                    {node.label}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      {/* Tombol Lanjut */}
-      <div className="max-w-5xl mx-auto flex justify-end">
-        <Button size="lg" onClick={() => navigate(`/projects/${projectId}/board`)} className="gap-2">
-          <ArrowRight className="h-4 w-4" />
-          Lihat Board Task
-        </Button>
-      </div>
+      {/* Modal Detail Node (Read-Only) */}
+      {selectedNode && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150"
+          onClick={() => setSelectedNode(null)}
+        >
+          <div
+            className="bg-card border border-border rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 relative animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Tombol Tutup */}
+            <button
+              type="button"
+              onClick={() => setSelectedNode(null)}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {/* Header Dialog */}
+            <div className="space-y-1.5 pr-6">
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn('text-xs font-semibold uppercase', getKindBadge(selectedNode.kind).color)}
+                >
+                  {getKindBadge(selectedNode.kind).label}
+                </Badge>
+                <span className="text-xs text-muted-foreground font-mono">
+                  Order #{selectedNode.order}
+                </span>
+              </div>
+              <h3 className="text-lg font-semibold text-foreground leading-snug">
+                {selectedNode.label}
+              </h3>
+            </div>
+
+            {/* Rincian Hierarki */}
+            <div className="space-y-3.5 text-sm pt-3 border-t border-border">
+              {selectedNode.parent ? (
+                <div>
+                  <span className="text-xs font-medium text-muted-foreground block mb-1">
+                    Induk (Parent Node):
+                  </span>
+                  <div
+                    onClick={() => setSelectedNode(selectedNode.parent!)}
+                    className="p-3 rounded-xl bg-muted/40 hover:bg-muted/80 border border-border flex items-center justify-between cursor-pointer transition-colors"
+                  >
+                    <span className="text-xs font-medium text-foreground truncate mr-2">
+                      {selectedNode.parent.label}
+                    </span>
+                    <Badge variant="outline" className="text-[10px] shrink-0">
+                      {getKindBadge(selectedNode.parent.kind).label}
+                    </Badge>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground italic flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                  <span>Node ini adalah Root Aplikasi (puncak arsitektur).</span>
+                </div>
+              )}
+
+              {/* Daftar Sub-komponen */}
+              <div>
+                <span className="text-xs font-medium text-muted-foreground block mb-1.5">
+                  Sub-Komponen Langsung ({selectedNode.children.length}):
+                </span>
+                {selectedNode.children.length > 0 ? (
+                  <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                    {selectedNode.children.map((child) => (
+                      <div
+                        key={child.id}
+                        onClick={() => setSelectedNode(child)}
+                        className="p-2.5 rounded-xl bg-muted/20 hover:bg-muted/60 border border-border/60 text-xs flex items-center justify-between cursor-pointer transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 pr-2">
+                          <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <span className="font-medium text-foreground truncate">
+                            {child.label}
+                          </span>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] shrink-0">
+                          {getKindBadge(child.kind).label}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic py-1">
+                    Tidak memiliki sub-komponen (node daun).
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-xl bg-muted/40 p-3 text-[11px] text-muted-foreground">
+                Detail struktur ini bersifat <strong>read-only</strong>. Seluruh task pengerjaan otomatis tersedia pada Board Task dan dapat dijalankan melalui CLI <code>pakeai</code>.
+              </div>
+            </div>
+
+            {/* Footer Dialog */}
+            <div className="flex justify-end pt-2 border-t border-border">
+              <Button size="sm" onClick={() => setSelectedNode(null)}>
+                Tutup
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

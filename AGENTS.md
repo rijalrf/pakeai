@@ -34,6 +34,7 @@ Monorepo AI Planner hasil refactor. Stack final: Vite+React (FE), Express+Prisma
 - **Tanpa mock fallback** di CLI/API. Error AI harus eksplisit (HTTP 502 + pesan).
 - **PAT**: token disimpan sebagai `sha256` di DB. Plaintext hanya dikembalikan SEKALI saat generate.
 - **Isolasi project**: `requireAgent` middleware attach `projectId` ke request. Endpoint agent cek `task.projectId === agent.projectId`.
+- **Akses publik**: lewat tunnel Cloudflare di `https://pakeai.mrijal.my.id` (ingress: `/api/*` → 6655, sisanya → 3455). `FE_URL` di `apps/api/.env` berisi daftar origin dipisah koma (lokal + publik); `VITE_API_URL` di `apps/web/.env` mengarah ke domain publik. CLI komputer lain: install tarball `packages/cli/pakeai-*.tgz` (`npm i -g`) lalu set `PAKEAI_API_URL=https://pakeai.mrijal.my.id`. Detail: README.md bagian "Akses dari Komputer Lain".
 
 ## Tambah Tool Baru
 

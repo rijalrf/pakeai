@@ -59,12 +59,19 @@ export async function requireAgent(req: Request, res: Response, next: NextFuncti
     return res.status(400).json({ error: 'Project ID required. Send X-Project-ID header or ?projectId query param.' });
   }
 
-  // Validate token has scope for this project
-  const scopedRecord = record.agentTokenScopes?.find(
-    (scope) => scope.projectId === projectId,
-  );
+  // Validate token has access to this project (user owner OR explicit scope)
+  const ownedProject = await prisma.project.findFirst({
+    where: { id: projectId, userId: record.userId },
+    select: { id: true, name: true },
+  });
 
-  if (!scopedRecord) {
+  const scopedRecord = !ownedProject
+    ? record.agentTokenScopes?.find((scope) => scope.projectId === projectId)
+    : null;
+
+  const targetProject = ownedProject || (scopedRecord ? scopedRecord.project : null);
+
+  if (!targetProject) {
     return res.status(403).json({ error: `Token ini tidak punya akses ke project ${projectId}` });
   }
 
@@ -76,8 +83,8 @@ export async function requireAgent(req: Request, res: Response, next: NextFuncti
   (req as AgentRequest).agent = {
     tokenId: record.id,
     userId: record.user.id,
-    projectId: projectId,
-    projectName: scopedRecord.project.name,
+    projectId: targetProject.id,
+    projectName: targetProject.name,
   };
   next();
 }

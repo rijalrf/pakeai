@@ -2,4 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
-body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+/* Tema pakeai:
+   - Terang: putih bersih dengan aksen hijau.
+   - Gelap: hitam dengan aksen hijau. */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 152 30% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 152 30% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 152 30% 10%;
+    --primary: 142 70% 32%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 140 20% 96%;
+    --secondary-foreground: 152 30% 15%;
+    --muted: 140 20% 96%;
+    --muted-foreground: 150 10% 40%;
+    --accent: 140 25% 93%;
+    --accent-foreground: 152 30% 15%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 140 15% 90%;
+    --input: 140 15% 85%;
+    --ring: 142 70% 32%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 150 20% 4%;
+    --foreground: 140 15% 92%;
+    --card: 150 18% 7%;
+    --card-foreground: 140 15% 92%;
+    --popover: 150 18% 7%;
+    --popover-foreground: 140 15% 92%;
+    --primary: 142 60% 45%;
+    --primary-foreground: 150 30% 6%;
+    --secondary: 150 12% 14%;
+    --secondary-foreground: 140 15% 92%;
+    --muted: 150 12% 14%;
+    --muted-foreground: 145 10% 60%;
+    --accent: 150 15% 16%;
+    --accent-foreground: 140 15% 92%;
+    --destructive: 0 60% 45%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 150 12% 16%;
+    --input: 150 12% 20%;
+    --ring: 142 60% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+}

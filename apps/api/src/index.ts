@@ -15,6 +15,12 @@ import { prisma } from './lib/prisma.js';
 import { toolsRegistry } from './tools/registry.js';
 import { z } from 'zod';
 import crypto from 'node:crypto';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { generateDiscoveryQuestions, DEFAULT_DISCOVERY_QUESTIONS } from './lib/ai/discovery.js';
 import { generateBRDFromDiscovery, BrdSchema } from './lib/ai/brd.js';
 import { generateRoadmapFromBRD } from './lib/ai/roadmap.js';
@@ -27,13 +33,15 @@ function hashToken(token: string): string {
 }
 
 const app = express();
+app.set('trust proxy', true);
 const PORT = Number(process.env.PORT ?? 6655);
-const FE_URL = process.env.FE_URL ?? 'http://localhost:3455';
+// FE_URL boleh berisi beberapa origin dipisah koma (lokal + domain publik).
+const FE_ORIGINS = (process.env.FE_URL ?? 'http://localhost:3455').split(',').map((o) => o.trim());
 
 // 1) CORS HARUS paling awal — agar preflight dari browser (OPTIONS) ke /api/auth/* pun kena.
 app.use(
   cors({
-    origin: FE_URL,
+    origin: FE_ORIGINS,
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -56,6 +64,25 @@ app.get('/health', (_req, res) => {
 
 app.get('/api/tools', (_req, res) => {
   res.json({ tools: toolsRegistry });
+});
+
+// Endpoint download CLI tarball untuk instalasi di laptop/komputer lain tanpa publish ke npm
+app.get('/api/download/pakeai.tgz', (_req, res) => {
+  const cliDir = path.resolve(__dirname, '../../../packages/cli');
+  try {
+    if (!fs.existsSync(cliDir)) {
+      return res.status(404).json({ error: 'Direktori CLI tidak ditemukan' });
+    }
+    const files = fs.readdirSync(cliDir).filter((f) => f.startsWith('pakeai-') && f.endsWith('.tgz'));
+    if (files.length === 0) {
+      return res.status(404).json({ error: 'Paket CLI belum tersedia' });
+    }
+    files.sort().reverse();
+    const targetFile = path.join(cliDir, files[0]);
+    res.download(targetFile, 'pakeai.tgz');
+  } catch (err) {
+    res.status(500).json({ error: 'Gagal mengunduh file CLI' });
+  }
 });
 
 // ============================================================
@@ -99,6 +126,27 @@ app.get('/api/projects/:id', requireUser, async (req: AuthedRequest, res) => {
 // ============================================================
 // Agent Token (PAT) — user generates Universal token untuk akses multiple projects
 // ============================================================
+
+app.post('/api/agent-tokens', requireUser, async (req: AuthedRequest, res) => {
+  const name = ((req.body?.name as string) || 'Token CLI').trim();
+  const token = 'pak_' + crypto.randomBytes(24).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+  const tokenRecord = await prisma.agentToken.create({
+    data: {
+      userId: req.userId,
+      name,
+      tokenHash,
+    },
+  });
+
+  res.status(201).json({
+    id: tokenRecord.id,
+    name: tokenRecord.name,
+    token, // tampilkan 1x
+    createdAt: tokenRecord.createdAt,
+  });
+});
 
 app.post('/api/projects/:id/agent-tokens', requireUser, async (req: AuthedRequest, res) => {
   const project = await prisma.project.findFirst({
@@ -169,6 +217,35 @@ app.delete('/api/agent-tokens/:tokenId', requireUser, async (req: AuthedRequest,
   res.json({ ok: true });
 });
 
+// List SEMUA token milik user lintas project — dipakai halaman profil.
+app.get('/api/agent-tokens', requireUser, async (req: AuthedRequest, res) => {
+  const tokens = await prisma.agentToken.findMany({
+    where: { userId: req.userId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      name: true,
+      lastUsedAt: true,
+      isRevoked: true,
+      createdAt: true,
+      agentTokenScopes: {
+        select: { project: { select: { id: true, name: true } } },
+      },
+    },
+  });
+
+  res.json({
+    tokens: tokens.map((t) => ({
+      id: t.id,
+      name: t.name,
+      lastUsedAt: t.lastUsedAt,
+      isRevoked: t.isRevoked,
+      createdAt: t.createdAt,
+      projects: t.agentTokenScopes.map((s) => s.project),
+    })),
+  });
+});
+
 // ============================================================
 // Agent endpoints (CLI) — dilindungi PAT, terisolasi per project
 // ============================================================
@@ -193,23 +270,34 @@ app.get('/api/agent/scopes', requireAgentSimple, async (req: Request, res) => {
             select: {
               id: true,
               name: true,
-            }
-          }
-        }
-      }
-    }
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!record || record.isRevoked) {
     return res.status(401).json({ error: 'Token tidak valid atau sudah dicabut.' });
   }
 
-  const scopes = record.agentTokenScopes?.map(s => ({
+  // Ambil semua project milik pemilik token
+  const ownedProjects = await prisma.project.findMany({
+    where: { userId: record.userId },
+    select: { id: true, name: true },
+    orderBy: { updatedAt: 'desc' },
+  });
+
+  const explicitProjects = record.agentTokenScopes?.map((s) => ({
     id: s.projectId,
     name: s.project.name,
   })) || [];
 
-  res.json({ scopes });
+  const map = new Map<string, { id: string; name: string }>();
+  for (const p of ownedProjects) map.set(p.id, p);
+  for (const p of explicitProjects) map.set(p.id, p);
+
+  res.json({ scopes: Array.from(map.values()) });
 });
 
 app.get('/api/agent/whoami', requireAgent, (req: AgentRequest, res) => {
@@ -464,17 +552,20 @@ Anda adalah AI Coding Agent otonom. Tugas Anda: mengeksekusi task-task project i
 ${project.brd ? `- BRD: SEDIA — fetch via \`pakeai brd\` atau download manual` : `- BRD: BELUM dibuat — minta user membuatnya lewat tool BRD Generator`}
 
 ## Setup (jalankan 1x di awal)
-1. Install CLI: sudah otomatis via \`npx pakeai\` (tidak perlu install global)
-2. Login dengan token di bawah ini:
+1. Install CLI dari tarball (minta file \`pakeai-<versi>.tgz\` ke user jika belum ada):
    \`\`\`
-   npx pakeai login {{TOKEN}}
+   npm install -g ./pakeai-<versi>.tgz
+   \`\`\`
+2. Login dengan token di bawah ini sekaligus arahkan ke server (tersimpan di ~/.pakeai/config.json):
+   \`\`\`
+   pakeai login {{TOKEN}} --api-url https://pakeai.mrijal.my.id
    \`\`\`
 
 ## Fetch BRD (lakukan sekali, sebelum loop task)
 Pilih SALAH SATU:
 - **Via CLI** (direkomendasikan):
   \`\`\`
-  npx pakeai brd
+  pakeai brd
   \`\`\`
 - **Manual**: download BRD.md dari web UI → save ke disk → paste isi BRD sebagai konteks
 
@@ -482,12 +573,12 @@ Pilih SALAH SATU:
 Untuk SETIAP task, kerjakan langkah ini PERSIS:
 
 \`\`\`
-npx pakeai next        # ambil task berikutnya
-npx pakeai start       # tandai IN_PROGRESS
-npx pakeai context     # baca Markdown bounded context task aktif
+pakeai next        # ambil task berikutnya
+pakeai start       # tandai IN_PROGRESS
+pakeai context     # baca Markdown bounded context task aktif
 # >>> kerjakan task HANYA pada file yang BOLEH dibuat/dimodifikasi <<<
 # >>> hormati file yang DILARANG <<<
-npx pakeai done        # tandai selesai
+pakeai done        # tandai selesai
 \`\`\`
 
 ## Setelah Semua Task Selesai
@@ -550,14 +641,126 @@ app.post('/api/projects/:id/discovery/generate', requireUser, async (req: Authed
   res.json({ questions: created, aiGenerated: questions !== DEFAULT_DISCOVERY_QUESTIONS });
 });
 
+function getFallbackDiscoveryOptions(question: string, context?: string | null): string[] {
+  const ctx = (context || '').toLowerCase();
+  const q = question.toLowerCase();
+
+  if (ctx.includes('notification') || q.includes('whatsapp') || q.includes('notifikasi')) {
+    return [
+      'Ya, otomatis kirim notifikasi via WhatsApp',
+      'Ya, otomatis kirim notifikasi via Email',
+      'Tidak perlu notifikasi eksternal, cukup di sistem',
+    ];
+  }
+  if (ctx.includes('identity') || q.includes('identitas') || q.includes('nim') || q.includes('nip')) {
+    return [
+      'Wajib input identitas resmi (NIM / NIP / KTP)',
+      'Cukup nama lengkap dan nomor WhatsApp aktif',
+      'Bebas disesuaikan dengan jenis peminjam (civitas vs umum)',
+    ];
+  }
+  if (ctx.includes('return') || q.includes('kembali') || q.includes('parsial')) {
+    return [
+      'Boleh dikembalikan sebagian, sisa barang tetap tercatat dipinjam',
+      'Wajib dikembalikan sekaligus semua barang dalam satu transaksi',
+      'Otomatis pecah menjadi transaksi baru untuk barang yang belum kembali',
+    ];
+  }
+  if (ctx.includes('hardware') || q.includes('scan') || q.includes('barcode') || q.includes('qr')) {
+    return [
+      'Wajib scan QR code / barcode fisik lewat kamera perangkat',
+      'Cukup input manual atau gunakan barcode scanner USB',
+      'Opsional, sediakan scan kamera dan pencarian manual SKU',
+    ];
+  }
+  if (ctx.includes('damage') || q.includes('rusak') || q.includes('denda')) {
+    return [
+      'Barang rusak memicu denda dan otomatis potong stok aktif',
+      'Catat status barang rusak tanpa membebankan denda',
+      'Wajib ganti rugi unit barang yang sama oleh peminjam',
+    ];
+  }
+  if (ctx.includes('report') || q.includes('ekspor') || q.includes('excel') || q.includes('pdf')) {
+    return [
+      'Ya, butuh ekspor laporan ke format Excel (XLSX / CSV)',
+      'Ya, butuh ekspor laporan ke PDF dan Excel',
+      'Tidak butuh ekspor file, cukup pantau di dashboard',
+    ];
+  }
+
+  return [
+    'Ya, aktifkan fitur ini dengan konfigurasi standar',
+    'Tidak perlu fitur ini pada tahap awal (MVP)',
+    'Sederhana saja sesuai kebutuhan dasar pengguna',
+  ];
+}
+
+function getFallbackDiscoveryRequired(question: string, context?: string | null, idx: number = 0): boolean {
+  const ctx = (context || '').toLowerCase();
+  const q = question.toLowerCase();
+
+  if (
+    ctx.includes('identity') ||
+    ctx.includes('rule') ||
+    ctx.includes('business') ||
+    ctx.includes('damage') ||
+    ctx.includes('return') ||
+    q.includes('identitas') ||
+    q.includes('alur jika') ||
+    q.includes('rusak')
+  ) {
+    return true;
+  }
+
+  if (
+    ctx.includes('notification') ||
+    ctx.includes('hardware') ||
+    ctx.includes('report') ||
+    q.includes('notifikasi') ||
+    q.includes('scan') ||
+    q.includes('ekspor')
+  ) {
+    return false;
+  }
+
+  return idx < 2;
+}
+
 app.get('/api/projects/:id/discovery', requireUser, async (req: AuthedRequest, res) => {
   const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
-  const questions = await prisma.discoveryQuestion.findMany({
+  const rawQuestions = await prisma.discoveryQuestion.findMany({
     where: { projectId: project.id },
     orderBy: { order: 'asc' },
     include: { answers: true },
   });
+
+  const questions = rawQuestions.map((q, idx) => {
+    let parsedContext: any = null;
+    try {
+      if (q.context && q.context.startsWith('{')) {
+        parsedContext = JSON.parse(q.context);
+      }
+    } catch {}
+
+    const options = (parsedContext?.options && Array.isArray(parsedContext.options) && parsedContext.options.length > 0)
+      ? parsedContext.options
+      : getFallbackDiscoveryOptions(q.question, q.context);
+
+    const required = typeof parsedContext?.required === 'boolean'
+      ? parsedContext.required
+      : getFallbackDiscoveryRequired(q.question, q.context, idx);
+
+    const type = parsedContext?.type === 'checkbox' ? 'checkbox' : 'radio';
+
+    return {
+      ...q,
+      options: options.slice(0, 3),
+      required,
+      type,
+    };
+  });
+
   res.json({ questions });
 });
 
@@ -988,9 +1191,19 @@ app.post('/api/projects/:id/interview/generate', requireUser, async (req: Authed
     const questions = await generateInterviewFromChat(project.id);
     await prisma.discoveryQuestion.deleteMany({ where: { projectId: project.id } });
     const created = await Promise.all(
-      questions.filter(Boolean).map((q, idx) =>
+      questions.filter(Boolean).map((q: any, idx: number) =>
         prisma.discoveryQuestion.create({
-          data: { projectId: project.id, order: idx + 1, question: q.question, context: q.context || undefined },
+          data: {
+            projectId: project.id,
+            order: idx + 1,
+            question: q.question,
+            context: JSON.stringify({
+              tag: q.context,
+              options: q.options && q.options.length > 0 ? q.options : getFallbackDiscoveryOptions(q.question, q.context),
+              required: typeof q.required === 'boolean' ? q.required : getFallbackDiscoveryRequired(q.question, q.context, idx),
+              type: q.type || 'radio',
+            }),
+          },
         })
       )
     );
@@ -1001,7 +1214,17 @@ app.post('/api/projects/:id/interview/generate', requireUser, async (req: Authed
     const created = await Promise.all(
       DEFAULT_DISCOVERY_QUESTIONS.map((q, idx) =>
         prisma.discoveryQuestion.create({
-          data: { projectId: project.id, order: idx + 1, question: q.question, context: q.context || undefined },
+          data: {
+            projectId: project.id,
+            order: idx + 1,
+            question: q.question,
+            context: JSON.stringify({
+              tag: q.context,
+              options: getFallbackDiscoveryOptions(q.question, q.context),
+              required: getFallbackDiscoveryRequired(q.question, q.context, idx),
+              type: 'radio',
+            }),
+          },
         })
       )
     );
@@ -1120,6 +1343,6 @@ app.get('/api/projects/:id/tree', requireUser, async (req: AuthedRequest, res) =
 // ============================================================
 app.listen(PORT, () => {
   console.log(`[pakeai-api] listening on http://localhost:${PORT}`);
-  console.log(`[pakeai-api] CORS origin: ${FE_URL}`);
+  console.log(`[pakeai-api] CORS origins: ${FE_ORIGINS.join(', ')}`);
   console.log(`[pakeai-api] Better Auth baseURL: ${process.env.BETTER_AUTH_URL}`);
 });
