@@ -1,10 +1,11 @@
 // Board page: papan Kanban task implementasi project.
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { api } from '@/lib/http';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowRight } from 'lucide-react';
+import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 
 type Task = {
   id: string;
@@ -20,52 +21,55 @@ export function BoardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
-  // Load tasks
-  useEffect(() => {
-    if (!projectId) return;
+  const loadTasks = useCallback(
+    async (mode: 'initial' | 'manual' | 'silent' = 'initial') => {
+      if (!projectId) return;
+      if (mode === 'manual') setRefreshing(true);
 
-    const loadTasks = async () => {
       try {
-        const res = await fetch(`http://localhost:6655/api/projects/${projectId}/tasks`, {
-          credentials: 'include',
-        });
-        const json = await res.json();
+        const json = await api<{ tasks: Task[] }>(`/api/projects/${projectId}/tasks`);
         if (json.tasks && json.tasks.length > 0) {
           setTasks(json.tasks);
-        } else {
+        } else if (mode === 'initial') {
           await generateTasks();
         }
       } catch (err) {
         console.error('Gagal load tasks:', err);
       } finally {
-        setLoading(false);
+        if (mode === 'initial') setLoading(false);
+        if (mode === 'manual') setRefreshing(false);
       }
-    };
+    },
+    [projectId]
+  );
 
-    loadTasks();
-  }, [projectId]);
+  // Load tasks on mount
+  useEffect(() => {
+    loadTasks('initial');
+  }, [loadTasks]);
+
+  // Polling saat auto refresh aktif (tiap 5 detik)
+  useEffect(() => {
+    if (!autoRefresh || !projectId) return;
+    const timer = setInterval(() => {
+      loadTasks('silent');
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [autoRefresh, projectId, loadTasks]);
 
   const generateTasks = async () => {
     if (!projectId) return;
     setGenerating(true);
 
     try {
-      const res = await fetch(`http://localhost:6655/api/projects/${projectId}/tasks/generate`, {
+      await api(`/api/projects/${projectId}/tasks/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
       });
-
-      if (res.ok) {
-        const refreshRes = await fetch(`http://localhost:6655/api/projects/${projectId}/tasks`, {
-          credentials: 'include',
-        });
-        const refreshJson = await refreshRes.json();
-        setTasks(refreshJson.tasks || []);
-      } else {
-        console.warn('Generate tasks gagal');
-      }
+      const refreshJson = await api<{ tasks: Task[] }>(`/api/projects/${projectId}/tasks`);
+      setTasks(refreshJson.tasks || []);
     } catch (err) {
       console.error('Error generating tasks:', err);
     } finally {
@@ -116,14 +120,41 @@ export function BoardPage() {
           <div />
         )}
 
-        <Button
-          size="sm"
-          onClick={() => navigate(`/projects/${projectId}/guide`)}
-          className="gap-1.5 font-medium ml-auto"
-        >
-          <ArrowRight className="h-4 w-4" />
-          Panduan Eksekusi
-        </Button>
+        <div className="flex items-center gap-2 ml-auto">
+          <Button
+            size="sm"
+            variant={autoRefresh ? 'default' : 'outline'}
+            onClick={() => setAutoRefresh((prev) => !prev)}
+            className="gap-1.5 font-medium"
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                autoRefresh ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground'
+              }`}
+            />
+            <span>Auto Refresh: {autoRefresh ? 'Aktif (5s)' : 'Mati'}</span>
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => loadTasks('manual')}
+            disabled={refreshing || loading}
+            className="gap-1.5 font-medium"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>{refreshing ? 'Memuat...' : 'Refresh'}</span>
+          </Button>
+
+          <Button
+            size="sm"
+            onClick={() => navigate(`/projects/${projectId}/guide`)}
+            className="gap-1.5 font-medium"
+          >
+            <ArrowRight className="h-4 w-4" />
+            Panduan Eksekusi
+          </Button>
+        </div>
       </div>
 
       {/* Kanban Columns */}

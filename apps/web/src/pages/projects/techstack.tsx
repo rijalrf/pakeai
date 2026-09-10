@@ -51,7 +51,7 @@ const PRESET_CATEGORIES = [
     title: 'Database & ORM',
     icon: Database,
     description: 'Penyimpanan data relasional atau dokumen beserta ORM',
-    options: ['PostgreSQL 16', 'MySQL 8', 'SQLite', 'MongoDB', 'Redis', 'Prisma ORM', 'Drizzle ORM'],
+    options: ['SQLite (Zero-Config)', 'PostgreSQL 16', 'MySQL 8', 'MongoDB', 'Redis', 'Prisma ORM', 'Drizzle ORM'],
   },
   {
     id: 'deployment',

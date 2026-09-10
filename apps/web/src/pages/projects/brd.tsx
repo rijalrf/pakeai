@@ -1,6 +1,7 @@
 // BRD page: View atau auto-generate BRD dari interview + tech stack
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { api } from '@/lib/http';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,10 +29,7 @@ export function BrdPage() {
 
     const loadBrd = async () => {
       try {
-        const res = await fetch(`http://localhost:6655/api/projects/${projectId}/brd`, {
-          credentials: 'include',
-        });
-        const json = await res.json();
+        const json = await api<{ brd?: { content: unknown } }>(`/api/projects/${projectId}/brd`);
         if (json.brd?.content) {
           setBrd(json.brd.content as BrdContent);
         } else {
@@ -53,21 +51,11 @@ export function BrdPage() {
     setGenerating(true);
 
     try {
-      const res = await fetch(`http://localhost:6655/api/projects/${projectId}/brd/generate`, {
+      await api(`/api/projects/${projectId}/brd/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
       });
-
-      if (res.ok) {
-        const refreshRes = await fetch(`http://localhost:6655/api/projects/${projectId}/brd`, {
-          credentials: 'include',
-        });
-        const refreshJson = await refreshRes.json();
-        setBrd(refreshJson.brd?.content as BrdContent);
-      } else {
-        console.warn('Generate BRD gagal, tapi lanjutkan');
-      }
+      const refreshJson = await api<{ brd?: { content: unknown } }>(`/api/projects/${projectId}/brd`);
+      setBrd(refreshJson.brd?.content as BrdContent);
     } catch (err) {
       console.error('Error generating BRD:', err);
     } finally {
