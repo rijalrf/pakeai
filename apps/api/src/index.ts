@@ -88,9 +88,17 @@ app.get('/api/tools', (_req, res) => {
 
 // Endpoint download CLI tarball untuk instalasi di laptop/komputer lain tanpa publish ke npm
 app.get('/api/download/pakeai.tgz', (_req, res) => {
-  const cliDir = path.resolve(__dirname, '../../../packages/cli');
+  const candidateDirs = [
+    process.env.CLI_DIR,
+    path.resolve(__dirname, '../../../packages/cli'),
+    path.resolve(process.cwd(), '../../packages/cli'),
+    path.resolve(process.cwd(), 'packages/cli'),
+    '/app/packages/cli',
+  ].filter(Boolean) as string[];
+
+  const cliDir = candidateDirs.find((d) => fs.existsSync(d));
   try {
-    if (!fs.existsSync(cliDir)) {
+    if (!cliDir) {
       return res.status(404).json({ error: 'Direktori CLI tidak ditemukan' });
     }
     const files = fs.readdirSync(cliDir).filter((f) => f.startsWith('pakeai-') && f.endsWith('.tgz'));
