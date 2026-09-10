@@ -1,5 +1,15 @@
-// Fetch wrapper ke API. credentials 'include' agar cookie session terbaca.
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:6655';
+// Fetch wrapper ke backend pakeai. credentials 'include' agar cookie session terbaca.
+function resolveApiUrl() {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return 'http://localhost:6655';
+    }
+  }
+  return import.meta.env.VITE_API_URL ?? 'http://localhost:6655';
+}
+
+const API_URL = resolveApiUrl();
 
 export class ApiError extends Error {
   status: number;

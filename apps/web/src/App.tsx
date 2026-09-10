@@ -1,8 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useSession } from '@/lib/auth-client';
 import { LoginPage } from '@/pages/login';
-import { RegisterPage } from '@/pages/register';
 import { HomePage } from '@/pages/home';
+import { ProfilePage } from '@/pages/profile';
 import { ProjectsPage } from '@/pages/projects/index';
 import { ChatPage } from '@/pages/chat';
 import { InterviewPage } from '@/pages/projects/interview';
@@ -26,7 +26,6 @@ export function App() {
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
 
       {/* Protected routes wrapped in WizardLayout */}
       <Route
@@ -37,6 +36,7 @@ export function App() {
         }
       >
         <Route path="/" element={<HomePage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/chat/:sessionId" element={<ChatPage />} />
         <Route path="/projects/:projectId/interview" element={<InterviewPage />} />

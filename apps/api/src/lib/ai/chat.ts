@@ -43,6 +43,7 @@ export async function replyChat(sessionId: string): Promise<{ kind: string; cont
     });
     return result;
   } catch (err) {
+    console.error('Error generateJson chat:', err);
     // Fallback jika JSON parse/retry gagal: kirim teks biasa minta coba lagi
     const fallbackMsg = {
       kind: 'text',
@@ -100,7 +101,17 @@ export async function finalizeChatSession(sessionId: string, userId: string): Pr
 // GENERATE INTERVIEW FROM CHAT
 // ===============================================
 
-export async function generateInterviewFromChat(projectId: string): Promise<{ question: string; context?: string; answer: string; skipped?: boolean }[]> {
+export async function generateInterviewFromChat(projectId: string): Promise<
+  {
+    question: string;
+    context?: string;
+    answer: string;
+    options?: string[];
+    required?: boolean;
+    type?: 'radio' | 'checkbox';
+    skipped?: boolean;
+  }[]
+> {
   const session = await prisma.chatSession.findFirst({
     where: { projectId, status: 'finalized' },
     include: { messages: { orderBy: { createdAt: 'asc' } } },

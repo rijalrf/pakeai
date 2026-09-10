@@ -12,13 +12,20 @@ export const FormQuestionSchema = z.object({
   type: z.enum(['radio', 'checkbox']).optional().default('radio'),
   options: z.array(z.string()).default([]),
   allowOther: z.boolean().optional().default(true),
-}).transform((q) => ({
-  id: q.id || Math.random().toString(36).substring(7),
-  label: q.label || q.question || 'Pertanyaan',
-  type: q.type,
-  options: q.options,
-  allowOther: q.allowOther ?? true,
-}));
+  required: z.boolean().optional(),
+}).transform((q) => {
+  const filtered = q.options
+    .filter((opt) => !/^lainnya/i.test(opt.trim()) && !/^other/i.test(opt.trim()))
+    .slice(0, 3);
+  return {
+    id: q.id || Math.random().toString(36).substring(7),
+    label: q.label || q.question || 'Pertanyaan',
+    type: q.type,
+    options: filtered,
+    allowOther: true,
+    required: q.required,
+  };
+});
 
 export const ChatFormPayloadSchema = z.object({
   formId: z.string().optional().default(() => 'form-' + Date.now()),
@@ -33,7 +40,7 @@ export const ChatMessageSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('text'),
     content: z.string(),
-    payload: z.any().optional(),
+    payload: z.any().nullish(),
   }),
   z.object({
     kind: z.literal('form'),
@@ -43,7 +50,7 @@ export const ChatMessageSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('done'),
     content: z.string(),
-    payload: ChatDonePayloadSchema.optional().default({ readyToFinalize: true }),
+    payload: ChatDonePayloadSchema.nullish().transform((val) => val ?? { readyToFinalize: true }),
   }),
 ]);
 
@@ -88,8 +95,19 @@ export const InterviewAnswerSchema = z.object({
   question: z.string(),
   answer: z.string().default(''),
   context: z.string().optional(),
+  options: z.array(z.string()).default([]),
+  required: z.boolean().optional().default(false),
+  type: z.enum(['radio', 'checkbox']).optional().default('radio'),
   skipped: z.boolean().optional().default(false),
   recommended: z.boolean().optional().default(false),
+}).transform((q) => {
+  const filtered = (q.options || [])
+    .filter((opt) => !/^lainnya/i.test(opt.trim()) && !/^other/i.test(opt.trim()))
+    .slice(0, 3);
+  return {
+    ...q,
+    options: filtered,
+  };
 });
 
 export const RecommendationResponseBase = z.object({

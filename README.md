@@ -68,14 +68,53 @@ pakeai done
 ```
 DATABASE_URL=postgresql://postgres:admin123@localhost:5432/project_ai_planner
 PORT=6655
-FE_URL=http://localhost:3455
+# Daftar origin yang diizinkan, dipisah koma (lokal untuk dev + domain publik untuk akses luar)
+FE_URL=http://localhost:3455,https://pakeai.mrijal.my.id
 AI_PROVIDER=openai
 OPENAI_BASE_URL=http://localhost:20128/v1
 OPENAI_API_KEY=<your-key>
 OPENAI_MODEL=ai-builder
 BETTER_AUTH_SECRET=<random>
-BETTER_AUTH_URL=http://localhost:6655
+BETTER_AUTH_URL=https://pakeai.mrijal.my.id
 ```
+
+## Akses dari Komputer Lain (Cloudflare Tunnel)
+
+Aplikasi di-expose lewat tunnel Cloudflare di satu hostname `pakeai.mrijal.my.id`
+(remotely-managed tunnel — ingress diatur dari dashboard Zero Trust, bukan file lokal).
+
+### Ingress di dashboard Cloudflare (Zero Trust > Networks > Tunnels > Public Hostname)
+
+| Urutan | Hostname | Path | Service |
+|---|---|---|---|
+| 1 | `pakeai.mrijal.my.id` | `/api/*` | `http://localhost:6655` |
+| 2 | `pakeai.mrijal.my.id` | (sisanya) | `http://localhost:3455` |
+
+Urutan penting: rule `/api/*` harus di atas rule catch-all.
+
+### Web (apps/web/.env)
+
+```
+VITE_API_URL=https://pakeai.mrijal.my.id
+```
+
+Dev lokal boleh mengosongkan `VITE_API_URL` (default `http://localhost:6655`).
+
+### CLI di komputer lain
+
+CLI didistribusikan sebagai tarball (tanpa npm registry):
+
+```bash
+# di mesin ini (hasil: packages/cli/pakeai-<versi>.tgz)
+cd packages/cli && npm run build && npm pack
+
+# di komputer lain
+npm install -g ./pakeai-<versi>.tgz
+pakeai login <token PAT dari web UI> --api-url https://pakeai.mrijal.my.id
+pakeai next && pakeai start && pakeai context && pakeai done
+```
+
+URL API tersimpan di `~/.pakeai/config.json` saat login, jadi perintah berikutnya tidak perlu flag lagi. Alternatif: set env `PAKEAI_API_URL` atau edit `~/.pakeai/config.json` manual.
 
 ## Endpoints API
 

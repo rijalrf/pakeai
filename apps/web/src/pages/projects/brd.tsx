@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowRight, FileText } from 'lucide-react';
+import { Loader2, ArrowRight } from 'lucide-react';
 
 type BrdContent = {
   overview?: string;
@@ -78,61 +78,39 @@ export function BrdPage() {
 
   if (loading || generating) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] px-6 py-6">
-        <div className="max-w-5xl mx-auto space-y-6">
-          {/* Skeleton header */}
-          <div className="flex items-center gap-3 mb-6">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <div className="space-y-2 flex-1">
-              <div className="h-7 bg-muted w-1/3 rounded animate-pulse" />
-              <div className="h-4 bg-muted w-1/4 rounded animate-pulse" />
-            </div>
-          </div>
-
-          {/* Skeleton dokumen */}
-          <Card>
-            <CardHeader>
-              <div className="h-6 bg-muted w-2/3 rounded animate-pulse" />
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i}>
-                  <div className="h-4 bg-muted w-1/4 rounded mb-2 animate-pulse" />
-                  <div className="h-4 bg-muted w-full rounded animate-pulse" />
-                  <div className="h-4 bg-muted w-5/6 rounded animate-pulse mt-2" />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
+      <div className="space-y-6">
+        {/* Skeleton dokumen */}
+        <Card>
+          <CardHeader>
+            <div className="h-6 bg-muted w-2/3 rounded animate-pulse" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i}>
+                <div className="h-4 bg-muted w-1/4 rounded mb-2 animate-pulse" />
+                <div className="h-4 bg-muted w-full rounded animate-pulse" />
+                <div className="h-4 bg-muted w-5/6 rounded animate-pulse mt-2" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-6 py-6">
-      {/* Header */}
-      <div className="max-w-5xl mx-auto mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold flex items-center gap-2">
-              <FileText className="h-6 w-6 text-green-600 dark:text-green-400" />
-              Business Requirements Document
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Dokumen spesifikasi kebutuhan bisnis aplikasi Anda
-            </p>
-          </div>
-          {!brd && !generating && (
-            <Button onClick={generateBRD} size="sm" className="gap-2">
-              Generate BRD
-            </Button>
-          )}
+    <div className="space-y-6">
+      {/* Tombol aksi atas bila belum ada BRD */}
+      {!brd && !generating && (
+        <div className="flex justify-end">
+          <Button onClick={generateBRD} size="sm" className="gap-2">
+            Generate BRD
+          </Button>
         </div>
-      </div>
+      )}
 
       {/* BRD Content */}
-      <div className="max-w-5xl mx-auto space-y-6 pb-8">
+      <div className="space-y-6 pb-8">
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Ringkasan</CardTitle>
