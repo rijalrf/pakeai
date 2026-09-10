@@ -5,7 +5,18 @@ import { api } from '@/lib/http';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowRight } from 'lucide-react';
+import { Loader2, ArrowRight, Lock } from 'lucide-react';
+
+const STAGE_ORDER: Record<string, number> = {
+  chat: 0,
+  interview: 1,
+  techstack: 2,
+  brd: 3,
+  tree: 4,
+  board: 5,
+  guide: 6,
+  done: 7,
+};
 
 type BrdContent = {
   overview?: string;
@@ -33,6 +44,7 @@ export function BrdPage() {
   const [brd, setBrd] = useState<BrdContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
 
   // Load BRD on mount
   useEffect(() => {
@@ -40,11 +52,16 @@ export function BrdPage() {
 
     const loadBrd = async () => {
       try {
+        const projectRes = await api<{ project?: { wizardStep?: string } }>(`/api/projects/${projectId}`);
+        const currentStep = projectRes.project?.wizardStep || 'brd';
+        const locked = (STAGE_ORDER[currentStep] ?? 3) > STAGE_ORDER.brd;
+        setIsLocked(locked);
+
         const json = await api<{ brd?: { content: unknown } }>(`/api/projects/${projectId}/brd`);
         if (json.brd?.content) {
           setBrd(json.brd.content as BrdContent);
-        } else {
-          // Auto generate jika belum ada
+        } else if (!locked) {
+          // Auto generate jika belum ada dan belum terkunci
           await generateBRD();
         }
       } catch (err) {
@@ -58,7 +75,7 @@ export function BrdPage() {
   }, [projectId]);
 
   const generateBRD = async () => {
-    if (!projectId) return;
+    if (!projectId || isLocked) return;
     setGenerating(true);
 
     try {
@@ -77,7 +94,7 @@ export function BrdPage() {
 
   if (loading || generating) {
     return (
-      <div className="space-y-6">
+      <div className="max-w-4xl mx-auto w-full space-y-6">
         {/* Skeleton dokumen */}
         <Card>
           <CardHeader>
@@ -98,15 +115,37 @@ export function BrdPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Tombol aksi atas bila belum ada BRD */}
-      {!brd && !generating && (
-        <div className="flex justify-end">
-          <Button onClick={generateBRD} size="sm" className="gap-2">
-            Generate BRD
-          </Button>
+    <div className="max-w-4xl mx-auto w-full space-y-6">
+      {/* Banner terkunci jika sudah lewat BRD */}
+      {isLocked && (
+        <div className="flex items-center gap-2.5 p-3.5 bg-muted/70 border border-border rounded-xl text-xs text-muted-foreground shadow-xs">
+          <Lock className="h-4 w-4 text-primary shrink-0" />
+          <span>
+            Tahap Dokumen BRD telah selesai dan terkunci (Read-Only). Spesifikasi kebutuhan fungsional dan aturan bisnis tersimpan permanen.
+          </span>
         </div>
       )}
+
+      {/* Header Bar dengan Tombol Aksi di Atas */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-border">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Dokumen Kebutuhan Bisnis (BRD)</h2>
+          <p className="text-xs text-muted-foreground">
+            Spesifikasi kebutuhan fitur, functional requirements, dan aturan bisnis aplikasi.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+          {!brd && !generating && !isLocked && (
+            <Button onClick={generateBRD} size="sm" variant="outline" className="gap-2">
+              Generate BRD
+            </Button>
+          )}
+          <Button size="sm" onClick={() => navigate(`/projects/${projectId}/tree`)} className="gap-2">
+            <span>Lihat Struktur Fitur</span>
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
       {/* BRD Content */}
       <div className="space-y-6 pb-8">
@@ -262,14 +301,6 @@ export function BrdPage() {
             </CardContent>
           </Card>
         )}
-
-        {/* Tombol Lanjut */}
-        <div className="flex justify-end pt-4">
-          <Button size="lg" onClick={() => navigate(`/projects/${projectId}/tree`)} className="gap-2">
-            <ArrowRight className="h-4 w-4" />
-            Lihat Struktur Fitur
-          </Button>
-        </div>
       </div>
     </div>
   );

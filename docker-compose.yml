@@ -17,6 +17,8 @@ services:
       - FE_URL=${FE_URL:-http://localhost:3455,https://pakeai.mrijal.my.id}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./packages/cli:/app/packages/cli:ro
     restart: unless-stopped
 
   web:
