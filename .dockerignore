@@ -1,0 +1,16 @@
+node_modules
+*/node_modules
+*/*/node_modules
+dist
+*/dist
+*/*/dist
+.git
+.github
+.legacy_archive
+.pakeai
+*.tgz
+*.log
+.env.local
+.env.*.local
+.DS_Store
+Thumbs.db
