@@ -527,7 +527,18 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
     mdParts.push(``);
   }
 
-  res.json({ ok: true, taskId: task.id, markdown: mdParts.join('\n') });
+  // Metadata guard untuk CLI (Fase 2: runtime scope guard). CLI cek git diff & validation commands secara lokal.
+  res.json({
+    ok: true,
+    taskId: task.id,
+    markdown: mdParts.join('\n'),
+    guard: {
+      layer: task.layer,
+      forbidden: ctx.forbidden ?? [],
+      files_readonly: ctx.files_readonly ?? [],
+      validation_commands: ctx.validation_commands ?? [],
+    },
+  });
 });
 
 // ============================================================
