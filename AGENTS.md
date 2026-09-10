@@ -28,13 +28,16 @@ Monorepo AI Planner hasil refactor. Stack final: Vite+React (FE), Express+Prisma
 
 ## Aturan Penting
 
-- **Port**: 3455 (web), 6655 (api). Jangan diubah.
+- **Port & Runtime**: 3455 (web), 6655 (api). Dijalankan via Docker Compose (`docker compose up -d --build`).
 - **Bahasa**: semua string UI, komentar publik, dan komunikasi ke user dalam Bahasa Indonesia.
 - **Tanpa emoji** di UI/kode/komunikasi. Pakai `lucide-react` icons.
 - **Tanpa mock fallback** di CLI/API. Error AI harus eksplisit (HTTP 502 + pesan).
 - **PAT**: token disimpan sebagai `sha256` di DB. Plaintext hanya dikembalikan SEKALI saat generate.
 - **Isolasi project**: `requireAgent` middleware attach `projectId` ke request. Endpoint agent cek `task.projectId === agent.projectId`.
-- **Akses publik**: lewat tunnel Cloudflare di `https://pakeai.mrijal.my.id` (ingress: `/api/*` → 6655, sisanya → 3455). `FE_URL` di `apps/api/.env` berisi daftar origin dipisah koma (lokal + publik); `VITE_API_URL` di `apps/web/.env` mengarah ke domain publik. CLI komputer lain: install tarball `packages/cli/pakeai-*.tgz` (`npm i -g`) lalu set `PAKEAI_API_URL=https://pakeai.mrijal.my.id`. Detail: README.md bagian "Akses dari Komputer Lain".
+- **Akses publik & CLI Remote**: lewat tunnel Cloudflare di `https://pakeai.mrijal.my.id` (ingress: `/api/*` → 6655, sisanya → 3455). Endpoint `GET /api/download/pakeai.tgz` menyediakan tarball CLI resmi. Instalasi di komputer lain: `npm i -g https://pakeai.mrijal.my.id/api/download/pakeai.tgz` lalu set `PAKEAI_API_URL=https://pakeai.mrijal.my.id`.
+- **Proteksi Tahap Wizard (Read-Only Locking)**: urutan tahap `chat` -> `interview` -> `techstack` -> `brd` -> `tree` -> `board` -> `guide` -> `done`. Tahap yang sudah dilewati terkunci secara read-only di UI dan backend (`isStageLocked` mengembalikan HTTP 403 Forbidden).
+- **Alur Tech Stack (2 Card)**: Default opsi "Rekomendasi AI" langsung mengeksekusi rekomendasi, menyimpan ke database, dan mengarahkan ke BRD. Opsi "Pilih Sendiri" membuka form konfigurasi manual per kategori arsitektur.
+- **Layout Header Global**: Sisi kiri berisi logo `pake.ai`, garis pemisah, dan judul halaman + subjudul. Sisi kanan menampilkan nama proyek aktif yang sedang dibuka, toggle tema, dan menu pengguna.
 
 ## Tambah Tool Baru
 
