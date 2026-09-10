@@ -34,6 +34,24 @@ function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+// Urutan tahapan wizard proyek
+const STAGE_ORDER: Record<string, number> = {
+  chat: 0,
+  interview: 1,
+  techstack: 2,
+  brd: 3,
+  tree: 4,
+  board: 5,
+  guide: 6,
+  done: 7,
+};
+
+function isStageLocked(currentStep: string | undefined | null, targetStage: string): boolean {
+  const currentRank = STAGE_ORDER[currentStep ?? 'interview'] ?? 1;
+  const targetRank = STAGE_ORDER[targetStage] ?? 0;
+  return currentRank > targetRank;
+}
+
 const app = express();
 app.set('trust proxy', true);
 const PORT = Number(process.env.PORT ?? 6655);
@@ -100,7 +118,7 @@ app.get('/api/projects', requireUser, async (req: AuthedRequest, res) => {
   const projects = await prisma.project.findMany({
     where: { userId: req.userId },
     orderBy: { updatedAt: 'desc' },
-    select: { id: true, name: true, idea: true, status: true, createdAt: true, updatedAt: true },
+    select: { id: true, name: true, idea: true, status: true, wizardStep: true, createdAt: true, updatedAt: true },
   });
   res.json({ projects });
 });
@@ -1037,9 +1055,12 @@ app.post('/api/projects/:id/brd/generate', requireUser, async (req: AuthedReques
   if (qa.length === 0) {
     return res.status(400).json({ error: 'Jawab minimal 1 pertanyaan discovery dulu.' });
   }
+  const existing = await prisma.brd.findUnique({ where: { projectId: project.id } });
+  if (existing && isStageLocked(project.wizardStep, 'brd')) {
+    return res.status(403).json({ error: 'Dokumen BRD telah selesai dan terkunci (Read-Only).' });
+  }
   try {
     const brd = await generateBRDFromDiscovery({ idea: project.idea, questions: qa, projectId: project.id });
-    const existing = await prisma.brd.findUnique({ where: { projectId: project.id } });
     if (existing) {
       const updated = await prisma.brd.update({
         where: { projectId: project.id },
@@ -1170,6 +1191,11 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
     },
   });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  const existingTasksCount = await prisma.task.count({ where: { projectId: project.id } });
+  if (existingTasksCount > 0 && isStageLocked(project.wizardStep, 'board')) {
+    return res.status(403).json({ error: 'Tasks telah selesai dibuat dan terkunci (Read-Only).' });
+  }
 
   // Auto-generate roadmap jika belum ada tapi BRD ada
   if (project.roadmap.length === 0) {
@@ -1656,6 +1682,10 @@ app.post('/api/projects/:id/interview/generate', requireUser, async (req: Authed
   const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
 
+  if (isStageLocked(project.wizardStep, 'interview')) {
+    return res.status(403).json({ error: 'Tahap interview telah selesai dan terkunci (Read-Only).' });
+  }
+
   try {
     const questions = await generateInterviewFromChat(project.id);
     await prisma.discoveryQuestion.deleteMany({ where: { projectId: project.id } });
@@ -1712,6 +1742,10 @@ app.post('/api/projects/:id/interview/recommend', requireUser, async (req: Authe
   });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
 
+  if (isStageLocked(project.wizardStep, 'interview')) {
+    return res.status(403).json({ error: 'Tahap interview telah selesai dan terkunci (Read-Only).' });
+  }
+
   const question = project.questions[parsed.data.questionIndex];
   if (!question) return res.status(404).json({ error: 'Pertanyaan tidak ditemukan.' });
 
@@ -1729,6 +1763,10 @@ app.post('/api/projects/:id/interview/recommend', requireUser, async (req: Authe
 app.put('/api/projects/:id/interview', requireUser, async (req: AuthedRequest, res) => {
   const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  if (isStageLocked(project.wizardStep, 'interview')) {
+    return res.status(403).json({ error: 'Tahap interview telah selesai dan terkunci (Read-Only).' });
+  }
 
   const answers = Array.isArray(req.body.answers) ? req.body.answers : [];
   for (const ans of answers) {
@@ -1748,6 +1786,10 @@ app.post('/api/projects/:id/techstack/recommend', requireUser, async (req: Authe
   const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
 
+  if (isStageLocked(project.wizardStep, 'techstack')) {
+    return res.status(403).json({ error: 'Tahap tech stack telah selesai dan terkunci (Read-Only).' });
+  }
+
   try {
     const result = await recommendTechStack(project.id);
     res.json(result);
@@ -1759,6 +1801,10 @@ app.post('/api/projects/:id/techstack/recommend', requireUser, async (req: Authe
 app.put('/api/projects/:id/techstack', requireUser, async (req: AuthedRequest, res) => {
   const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  if (isStageLocked(project.wizardStep, 'techstack')) {
+    return res.status(403).json({ error: 'Tahap tech stack telah selesai dan terkunci (Read-Only).' });
+  }
 
   await prisma.stack.deleteMany({ where: { projectId: project.id } });
   const stacks = Array.isArray(req.body.techStack) ? req.body.techStack : [];
@@ -1786,6 +1832,11 @@ app.post('/api/projects/:id/tree/generate', requireUser, async (req: AuthedReque
   });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
   if (!project.brd) return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
+
+  const existingTreeCount = await prisma.treeNode.count({ where: { projectId: project.id } });
+  if (existingTreeCount > 0 && isStageLocked(project.wizardStep, 'tree')) {
+    return res.status(403).json({ error: 'Diagram struktur telah selesai dan terkunci (Read-Only).' });
+  }
 
   try {
     const nodes = await generateTreeFromBrd(project.id);

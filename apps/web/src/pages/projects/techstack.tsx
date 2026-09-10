@@ -1,4 +1,4 @@
-// Tech Stack page: Rekomendasi AI informatif + Form pilihan manual
+// Tech Stack page: Pilihan 2 Card (Rekomendasi AI vs Pilih Sendiri) + Form manual
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,6 +10,7 @@ import {
   Check,
   Loader2,
   ArrowRight,
+  ArrowLeft,
   Plus,
   X,
   Layers,
@@ -17,11 +18,23 @@ import {
   Database,
   Globe,
   Server,
-  CheckCircle2,
-  HelpCircle,
+  ShieldCheck,
+  SlidersHorizontal,
+  Lock,
 } from 'lucide-react';
 import { api } from '@/lib/http';
 import { cn } from '@/lib/utils';
+
+const STAGE_ORDER: Record<string, number> = {
+  chat: 0,
+  interview: 1,
+  techstack: 2,
+  brd: 3,
+  tree: 4,
+  board: 5,
+  guide: 6,
+  done: 7,
+};
 
 // Preset kategori untuk form manual
 const PRESET_CATEGORIES = [
@@ -50,11 +63,18 @@ const PRESET_CATEGORIES = [
     id: 'database',
     title: 'Database & ORM',
     icon: Database,
-    description: 'Penyimpanan data relasional atau dokumen beserta ORM',
-    options: ['SQLite (Zero-Config)', 'PostgreSQL 16', 'MySQL 8', 'MongoDB', 'Redis', 'Prisma ORM', 'Drizzle ORM'],
+    description: 'Penyimpanan data persisten dan layer model objek relasional',
+    options: ['PostgreSQL + Prisma', 'MySQL + Drizzle', 'SQLite (Lokal)', 'MongoDB + Mongoose', 'Supabase (Postgres)'],
   },
   {
-    id: 'deployment',
+    id: 'auth',
+    title: 'Autentikasi & Keamanan',
+    icon: ShieldCheck,
+    description: 'Sistem login, sesi pengguna, token PAT, dan kontrol akses',
+    options: ['Better Auth', 'NextAuth / Auth.js', 'JWT Cookie Session', 'Clerk Auth', 'Supabase Auth'],
+  },
+  {
+    id: 'devops',
     title: 'Deployment & DevOps',
     icon: Cpu,
     description: 'Lingkungan hosting, kontainerisasi, dan otomatisasi deploy',
@@ -66,22 +86,27 @@ export function TechStackPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
 
-  const [recommendations, setRecommendations] = useState<Array<{ label: string }>>([]);
-  const [reasoning, setReasoning] = useState('');
+  const [selectedMode, setSelectedMode] = useState<'ai' | 'manual'>('ai');
+  const [view, setView] = useState<'select' | 'manual'>('select');
   const [selected, setSelected] = useState<string[]>([]);
-  const [loadingRec, setLoadingRec] = useState(false);
+  const [generatingAi, setGeneratingAi] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const [customInputs, setCustomInputs] = useState<Record<string, string>>({});
 
-  // Load tech stack yang tersimpan di project
+  // Load status project dan tech stack yang tersimpan
   useEffect(() => {
     if (!projectId) return;
 
     const loadTechStack = async () => {
       try {
-        const json = await api<{ project?: { stacks?: Array<{ name: string }> } }>(
+        const json = await api<{ project?: { wizardStep?: string; stacks?: Array<{ name: string }> } }>(
           `/api/projects/${projectId}`
         );
+        const currentStep = json.project?.wizardStep || 'techstack';
+        const locked = (STAGE_ORDER[currentStep] ?? 2) > STAGE_ORDER.techstack;
+        setIsLocked(locked);
+
         const existing = json.project?.stacks || [];
         if (existing.length > 0) {
           setSelected(existing.map((s) => s.name));
@@ -94,48 +119,50 @@ export function TechStackPage() {
     loadTechStack();
   }, [projectId]);
 
-  // Request rekomendasi AI dan langsung terapkan ke pilihan aktif (selected)
-  const getRecommendation = async () => {
-    setLoadingRec(true);
+  // Alur Rekomendasi AI: Generate langsung & simpan ke DB lalu otomatis redirect ke BRD
+  const handleAiGenerateAndProceed = async () => {
+    if (!projectId || generatingAi || isLocked) return;
+    setGeneratingAi(true);
+
     try {
-      const json = await api<{ techStack?: string[]; reasoning?: string }>(
+      // 1. Panggil rekomendasi AI
+      const recRes = await api<{ techStack?: string[]; reasoning?: string }>(
         `/api/projects/${projectId}/techstack/recommend`,
         { method: 'POST' }
       );
 
-      const recList = (json.techStack || []).map((t: string) => ({ label: t }));
-      setRecommendations(recList);
-      setReasoning(json.reasoning || '');
+      const stackList = recRes.techStack && recRes.techStack.length > 0 ? recRes.techStack : [];
 
-      // Otomatis pilih semua rekomendasi AI agar tombol Lanjut ke BRD langsung aktif
-      const recLabels = recList.map((r) => r.label);
-      setSelected((prev) => {
-        const set = new Set([...prev, ...recLabels]);
-        return Array.from(set);
+      if (stackList.length === 0) {
+        alert('Gagal menghasilkan rekomendasi tech stack dari AI. Silakan coba lagi atau pilih secara manual.');
+        setGeneratingAi(false);
+        return;
+      }
+
+      // 2. Simpan tech stack terpilih ke backend (otomatis memajukan wizardStep ke brd)
+      await api(`/api/projects/${projectId}/techstack`, {
+        method: 'PUT',
+        body: JSON.stringify({ techStack: stackList }),
       });
+
+      // 3. Langsung navigasi ke halaman BRD
+      navigate(`/projects/${projectId}/brd`);
     } catch (err) {
-      console.error('Gagal dapat rekomendasi AI:', err);
-      alert('Gagal mendapatkan rekomendasi AI.');
-    } finally {
-      setLoadingRec(false);
+      console.error('Error saat generate & simpan tech stack AI:', err);
+      alert('Terjadi kesalahan saat memproses rekomendasi AI.');
+      setGeneratingAi(false);
     }
   };
 
   const toggleSelection = (label: string) => {
+    if (isLocked) return;
     setSelected((prev) =>
       prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label]
     );
   };
 
-  const selectAllRecommendations = () => {
-    const recLabels = recommendations.map((r) => r.label);
-    setSelected((prev) => {
-      const set = new Set([...prev, ...recLabels]);
-      return Array.from(set);
-    });
-  };
-
   const handleAddCustom = (categoryId: string) => {
+    if (isLocked) return;
     const val = customInputs[categoryId]?.trim();
     if (!val) return;
 
@@ -152,6 +179,7 @@ export function TechStackPage() {
     }
   };
 
+  // Simpan pilihan manual dan lanjut ke BRD
   const saveAndContinue = async () => {
     if (selected.length === 0) {
       alert('Pilih minimal 1 teknologi untuk melanjutkan.');
@@ -174,316 +202,466 @@ export function TechStackPage() {
     }
   };
 
-  const isAllRecsSelected =
-    recommendations.length > 0 &&
-    recommendations.every((r) => selected.includes(r.label));
+  // ============================================================
+  // TAMPILAN 1: READ-ONLY (JIKA TAHAP TECH STACK SUDAH DILEWATI/TERKUNCI)
+  // ============================================================
+  if (isLocked) {
+    return (
+      <div className="max-w-4xl mx-auto w-full space-y-6">
+        <div className="flex items-center gap-2.5 p-3.5 bg-muted/70 border border-border rounded-xl text-xs text-muted-foreground shadow-xs">
+          <Lock className="h-4 w-4 text-primary shrink-0" />
+          <span>
+            Tahap Tech Stack telah selesai dan terkunci (Read-Only). Konfigurasi arsitektur teknologi tersimpan permanen dan tidak dapat diubah lagi.
+          </span>
+        </div>
 
-  return (
-    <div className="max-w-4xl mx-auto w-full space-y-6">
-      {/* Subheader status */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
-        <p className="text-xs text-muted-foreground">
-          Gunakan rekomendasi analisis AI atau tentukan teknologi secara manual per kategori di bawah.
-        </p>
-        <span className="text-xs text-muted-foreground bg-muted/60 px-3 py-1 rounded-full shrink-0 self-start sm:self-auto">
-          {selected.length} teknologi dipilih
-        </span>
-      </div>
-
-      {/* Bagian Rekomendasi AI (Format Informatif) */}
-      <Card className="border-primary/40 bg-card shadow-xs overflow-hidden">
-        <CardHeader className="pb-3 bg-primary/5 dark:bg-primary/10 border-b border-border/80">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="space-y-0.5">
-              <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                Rekomendasi Arsitektur AI
-              </CardTitle>
-              <CardDescription className="text-xs text-muted-foreground">
-                Analisis otomatis berbasis tujuan aplikasi, aturan bisnis, dan skala pengguna
-              </CardDescription>
-            </div>
-
-            <Button
-              size="sm"
-              onClick={getRecommendation}
-              disabled={loadingRec}
-              className="gap-1.5 shrink-0 self-start sm:self-auto font-medium"
-            >
-              {loadingRec ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {recommendations.length > 0 ? 'Generate Ulang' : 'Generate Rekomendasi AI'}
-            </Button>
-          </div>
-        </CardHeader>
-
-        <CardContent className="space-y-4 pt-4">
-          {reasoning ? (
-            <>
-              {/* Box Informatif: Analisis Arsitektur */}
-              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  <span>ANALISIS KEBUTUHAN & ALASAN PEMILIHAN</span>
-                </div>
-                <p className="text-sm text-foreground/90 leading-relaxed">
-                  {reasoning}
-                </p>
-              </div>
-
-              {/* Grid Kartu Layer Rekomendasi Informatif */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-foreground">
-                    Teknologi yang Direkomendasikan
+        <Card className="border-border shadow-xs">
+          <CardHeader className="pb-3 border-b bg-muted/20">
+            <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+              <Layers className="h-4 w-4 text-primary" />
+              <span>Daftar Arsitektur Teknologi Terpilih</span>
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Teknologi yang digunakan untuk mengimplementasikan proyek ini
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-4">
+            {selected.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic py-2">
+                Tidak ada data tech stack tersimpan.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {selected.map((item) => (
+                  <span
+                    key={item}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary border border-primary/30 text-xs font-medium"
+                  >
+                    <Check className="h-3 w-3" />
+                    <span>{item}</span>
                   </span>
-                  {!isAllRecsSelected ? (
-                    <button
-                      type="button"
-                      onClick={selectAllRecommendations}
-                      className="text-xs text-primary hover:underline font-medium"
-                    >
-                      Pilih Semua Rekomendasi
-                    </button>
-                  ) : (
-                    <span className="text-[11px] text-primary flex items-center gap-1 font-medium">
-                      <Check className="h-3 w-3" />
-                      Semua rekomendasi telah terpilih
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-end pt-2 border-t border-border">
+          <Button
+            size="lg"
+            onClick={() => navigate(`/projects/${projectId}/brd`)}
+            className="gap-2 font-medium"
+          >
+            <span>Lanjut ke BRD</span>
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // TAMPILAN 2: FORM PILIHAN MANUAL TECH STACK
+  // ============================================================
+  if (view === 'manual') {
+    return (
+      <div className="max-w-4xl mx-auto w-full space-y-6">
+        {/* Tombol kembali ke 2 Card pilihan */}
+        <div className="flex items-center justify-between pb-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setView('select')}
+            className="gap-1.5 text-xs"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            <span>Kembali ke Pilihan Metode</span>
+          </Button>
+
+          <span className="text-xs text-muted-foreground bg-muted/60 px-3 py-1 rounded-full">
+            {selected.length} teknologi dipilih
+          </span>
+        </div>
+
+        {/* Bagian Form Pilihan Manual per Kategori */}
+        <Card className="border-border shadow-xs">
+          <CardHeader className="pb-3 bg-muted/20 border-b border-border">
+            <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+              <Layers className="h-4 w-4 text-primary" />
+              <span>Pilihan Manual Tech Stack</span>
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Pilih opsi teknologi yang tersedia atau ketik teknologi kustom Anda pada setiap lapisan aplikasi
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="space-y-5 pt-4">
+            {PRESET_CATEGORIES.map((cat) => {
+              const Icon = cat.icon;
+              const customValue = customInputs[cat.id] || '';
+
+              return (
+                <div key={cat.id} className="space-y-2 pb-4 border-b border-border/60 last:border-b-0 last:pb-0">
+                  <div className="flex items-center gap-2">
+                    <Icon className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-xs font-semibold text-foreground">
+                      {cat.title}
                     </span>
-                  )}
-                </div>
+                    <span className="text-[11px] text-muted-foreground hidden sm:inline">
+                      — {cat.description}
+                    </span>
+                  </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                  {recommendations.map((rec, idx) => {
-                    const hasColon = rec.label.includes(':');
-                    const category = hasColon ? rec.label.split(':')[0].trim() : 'Teknologi';
-                    const name = hasColon ? rec.label.split(':').slice(1).join(':').trim() : rec.label;
-                    const isChecked = selected.includes(rec.label);
+                  {/* Pilihan preset badge */}
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {cat.options.map((opt) => {
+                      const isSelected = selected.some(
+                        (s) => s.toLowerCase().includes(opt.toLowerCase()) || opt.toLowerCase().includes(s.toLowerCase())
+                      );
 
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => toggleSelection(rec.label)}
-                        className={cn(
-                          'p-3 rounded-lg border text-left transition-all flex items-start gap-2.5',
-                          isChecked
-                            ? 'border-primary bg-primary/10 dark:bg-primary/20 ring-1 ring-primary shadow-xs'
-                            : 'border-border bg-background hover:border-primary/40 hover:bg-accent/40'
-                        )}
-                      >
-                        <div
+                      return (
+                        <Badge
+                          key={opt}
+                          variant={isSelected ? 'default' : 'outline'}
+                          onClick={() => toggleSelection(opt)}
                           className={cn(
-                            'h-4 w-4 rounded-full mt-0.5 shrink-0 flex items-center justify-center border transition-colors',
-                            isChecked
-                              ? 'bg-primary border-primary text-primary-foreground'
-                              : 'border-muted-foreground/40 bg-background'
+                            'cursor-pointer px-2.5 py-1 text-xs transition-all font-normal',
+                            isSelected
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'hover:border-primary/50 hover:bg-accent/50'
                           )}
                         >
-                          {isChecked && <Check className="h-2.5 w-2.5 stroke-[3]" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span className="text-[10px] uppercase font-semibold text-primary block tracking-wider">
-                            {category}
-                          </span>
-                          <span className="text-xs font-medium text-foreground block truncate">
-                            {name}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
+                          {isSelected && <Check className="h-3 w-3 mr-1" />}
+                          {opt}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+
+                  {/* Tambah kustom per kategori */}
+                  <div className="flex gap-2 max-w-sm pt-1">
+                    <Input
+                      placeholder={`Tambah ${cat.title.toLowerCase()} lain...`}
+                      value={customValue}
+                      onChange={(e) =>
+                        setCustomInputs((prev) => ({ ...prev, [cat.id]: e.target.value }))
+                      }
+                      onKeyDown={(e) => handleKeyDownCustom(e, cat.id)}
+                      className="h-8 text-xs bg-background"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleAddCustom(cat.id)}
+                      disabled={!customValue.trim()}
+                      className="h-8 px-2.5 text-xs gap-1"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Tambah
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </>
-          ) : (
-            <div className="py-6 text-center space-y-3">
-              <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 text-primary">
-                <Sparkles className="h-5 w-5" />
-              </div>
-              <div className="space-y-1 max-w-md mx-auto">
-                <p className="text-sm font-medium text-foreground">
-                  Dapatkan Rekomendasi Tech Stack Otomatis
-                </p>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  AI akan menganalisis kebutuhan aplikasi Anda dari hasil chat brainstorming dan interview, lalu menyusun kombinasi arsitektur yang paling optimal.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                onClick={getRecommendation}
-                disabled={loadingRec}
-                className="gap-2"
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        {/* Ringkasan Teknologi Terpilih */}
+        <div className="rounded-xl border border-border bg-card p-4 space-y-2 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-foreground">
+              Daftar Teknologi Terpilih ({selected.length})
+            </span>
+            {selected.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelected([])}
+                className="text-xs text-muted-foreground hover:text-destructive transition-colors"
               >
-                {loadingRec ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                Generate Sekarang
-              </Button>
+                Kosongkan Pilihan
+              </button>
+            )}
+          </div>
+
+          {selected.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic py-1">
+              Belum ada teknologi yang dipilih. Klik badge kategori di atas untuk memilih teknologi.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {selected.map((item) => (
+                <span
+                  key={item}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/10 text-primary border border-primary/30 text-xs font-medium"
+                >
+                  <span className="truncate max-w-xs">{item}</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleSelection(item)}
+                    className="hover:text-destructive hover:bg-destructive/10 rounded p-0.5 transition-colors"
+                    title="Hapus"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Bagian Form Pilihan Manual (Terstruktur per Kategori) */}
-      <Card className="border-border shadow-xs">
-        <CardHeader className="pb-3 bg-muted/20 border-b border-border">
-          <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-            <Layers className="h-4 w-4 text-primary" />
-            Form Pilihan Manual
-          </CardTitle>
-          <CardDescription className="text-xs text-muted-foreground">
-            Sesuaikan atau tambahkan teknologi spesifik pada setiap lapisan aplikasi sesuai preferensi Anda
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent className="space-y-5 pt-4">
-          {PRESET_CATEGORIES.map((cat) => {
-            const Icon = cat.icon;
-            const customValue = customInputs[cat.id] || '';
-
-            return (
-              <div key={cat.id} className="space-y-2 pb-4 border-b border-border/60 last:border-b-0 last:pb-0">
-                <div className="flex items-center gap-2">
-                  <Icon className="h-3.5 w-3.5 text-primary" />
-                  <span className="text-xs font-semibold text-foreground">
-                    {cat.title}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground hidden sm:inline">
-                    — {cat.description}
-                  </span>
-                </div>
-
-                {/* Pilihan preset */}
-                <div className="flex flex-wrap gap-1.5 pt-0.5">
-                  {cat.options.map((opt) => {
-                    const isSelected = selected.some(
-                      (s) => s.toLowerCase().includes(opt.toLowerCase()) || opt.toLowerCase().includes(s.toLowerCase())
-                    );
-
-                    return (
-                      <Badge
-                        key={opt}
-                        variant={isSelected ? 'default' : 'outline'}
-                        onClick={() => toggleSelection(opt)}
-                        className={cn(
-                          'cursor-pointer px-2.5 py-1 text-xs transition-all font-normal',
-                          isSelected
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'hover:border-primary/50 hover:bg-accent/50'
-                        )}
-                      >
-                        {isSelected && <Check className="h-3 w-3 mr-1" />}
-                        {opt}
-                      </Badge>
-                    );
-                  })}
-                </div>
-
-                {/* Tambah kustom per kategori */}
-                <div className="flex gap-2 max-w-sm pt-1">
-                  <Input
-                    placeholder={`Tambah ${cat.title.toLowerCase()} lain...`}
-                    value={customValue}
-                    onChange={(e) =>
-                      setCustomInputs((prev) => ({ ...prev, [cat.id]: e.target.value }))
-                    }
-                    onKeyDown={(e) => handleKeyDownCustom(e, cat.id)}
-                    className="h-8 text-xs bg-background"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleAddCustom(cat.id)}
-                    disabled={!customValue.trim()}
-                    className="h-8 px-2.5 text-xs gap-1"
-                  >
-                    <Plus className="h-3 w-3" />
-                    Tambah
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-
-      {/* Ringkasan Teknologi Terpilih */}
-      <div className="rounded-xl border border-border bg-card p-4 space-y-2 shadow-xs">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-foreground">
-            Daftar Teknologi Terpilih ({selected.length})
-          </span>
-          {selected.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setSelected([])}
-              className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-            >
-              Kosongkan Pilihan
-            </button>
-          )}
         </div>
 
-        {selected.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic py-1">
-            Belum ada teknologi yang dipilih. Klik tombol "Generate Rekomendasi AI" di atas atau pilih langsung dari opsi form manual.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {selected.map((item) => (
-              <span
-                key={item}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/10 text-primary border border-primary/30 text-xs font-medium"
-              >
-                <span className="truncate max-w-xs">{item}</span>
-                <button
-                  type="button"
-                  onClick={() => toggleSelection(item)}
-                  className="hover:text-destructive hover:bg-destructive/10 rounded p-0.5 transition-colors"
-                  title="Hapus"
-                >
-                  <X className="h-3 w-3" />
-                </button>
+        {/* Footer Form Manual */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border">
+          <div className="text-xs">
+            {selected.length === 0 ? (
+              <span className="text-destructive font-medium">
+                Pilih minimal 1 teknologi untuk melanjutkan ke penyusunan BRD
               </span>
-            ))}
+            ) : (
+              <span className="text-primary font-medium">
+                {selected.length} teknologi terpilih. Siap melanjutkan ke penyusunan BRD.
+              </span>
+            )}
           </div>
-        )}
+
+          <Button
+            size="lg"
+            onClick={saveAndContinue}
+            disabled={saving || selected.length === 0}
+            className="w-full sm:w-auto gap-2 font-medium"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowRight className="h-4 w-4" />
+            )}
+            Lanjut ke BRD
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // TAMPILAN 3: DUA CARD UTAMA ("Mau Pake Teknologi apa?")
+  // ============================================================
+  return (
+    <div className="max-w-3xl mx-auto w-full space-y-8 py-4">
+      {/* Header Utama */}
+      <div className="text-center space-y-2">
+        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+          Mau Pake Teknologi apa?
+        </h2>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          Pilih metode penentuan tech stack aplikasi Anda. Anda dapat menyerahkan analisis arsitektur ke AI atau memilihnya secara manual.
+        </p>
       </div>
 
-      {/* Footer Aksi */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border">
-        <div className="text-xs">
-          {selected.length === 0 ? (
-            <span className="text-destructive font-medium">
-              Pilih minimal 1 teknologi untuk melanjutkan ke penyusunan BRD
-            </span>
-          ) : (
-            <span className="text-primary font-medium">
-              {selected.length} teknologi terpilih. Siap melanjutkan ke penyusunan BRD.
-            </span>
+      {/* Grid 2 Card */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-stretch">
+        {/* CARD 1: Rekomendasi AI (Default) */}
+        <div
+          onClick={() => setSelectedMode('ai')}
+          className={cn(
+            'group relative rounded-2xl border-2 p-6 flex flex-col justify-between cursor-pointer transition-all duration-200 select-none shadow-xs',
+            selectedMode === 'ai'
+              ? 'border-primary bg-primary/5 dark:bg-primary/10 ring-2 ring-primary/30 shadow-md'
+              : 'border-border bg-card hover:border-primary/50 hover:bg-accent/40'
           )}
+        >
+          <div className="space-y-4">
+            {/* Header Card: Icon & Radio Status */}
+            <div className="flex items-start justify-between gap-3">
+              <div
+                className={cn(
+                  'h-12 w-12 rounded-xl flex items-center justify-center transition-colors',
+                  selectedMode === 'ai'
+                    ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/30'
+                    : 'bg-primary/10 text-primary group-hover:bg-primary/20'
+                )}
+              >
+                <Sparkles className="h-6 w-6" />
+              </div>
+
+              <div
+                className={cn(
+                  'h-5 w-5 rounded-full flex items-center justify-center border transition-all',
+                  selectedMode === 'ai'
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-muted-foreground/40 bg-background'
+                )}
+              >
+                {selectedMode === 'ai' && <Check className="h-3 w-3 stroke-[3]" />}
+              </div>
+            </div>
+
+            {/* Konten Card */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-foreground">
+                  Rekomendasi AI
+                </h3>
+                <Badge variant="outline" className="text-[10px] border-primary/40 text-primary font-medium">
+                  Rekomendasi
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                AI menganalisis ide aplikasi dari obrolan brainstorming dan interview untuk menyusun kombinasi stack paling optimal, stabil, dan modern.
+              </p>
+            </div>
+
+            {/* Poin Keunggulan */}
+            <div className="space-y-1.5 pt-2 border-t border-border/60 text-xs text-foreground/80">
+              <div className="flex items-center gap-2 text-[11px]">
+                <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span>Analisis otomatis sesuai skala aplikasi</span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px]">
+                <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span>Kompatibilitas modul frontend & backend terjamin</span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px]">
+                <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span>Langsung generate & siap lanjut ke BRD</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-6">
+            <span
+              className={cn(
+                'text-xs font-semibold block text-center py-2 rounded-lg transition-colors',
+                selectedMode === 'ai'
+                  ? 'text-primary'
+                  : 'text-muted-foreground'
+              )}
+            >
+              {selectedMode === 'ai' ? 'Pilihan Terpilih' : 'Klik untuk memilih'}
+            </span>
+          </div>
         </div>
 
-        <Button
-          size="lg"
-          onClick={saveAndContinue}
-          disabled={saving || selected.length === 0}
-          className="w-full sm:w-auto gap-2 font-medium"
-        >
-          {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ArrowRight className="h-4 w-4" />
+        {/* CARD 2: Pilih Sendiri (Manual) */}
+        <div
+          onClick={() => setSelectedMode('manual')}
+          className={cn(
+            'group relative rounded-2xl border-2 p-6 flex flex-col justify-between cursor-pointer transition-all duration-200 select-none shadow-xs',
+            selectedMode === 'manual'
+              ? 'border-primary bg-primary/5 dark:bg-primary/10 ring-2 ring-primary/30 shadow-md'
+              : 'border-border bg-card hover:border-primary/50 hover:bg-accent/40'
           )}
-          Lanjut ke BRD
-        </Button>
+        >
+          <div className="space-y-4">
+            {/* Header Card: Icon & Radio Status */}
+            <div className="flex items-start justify-between gap-3">
+              <div
+                className={cn(
+                  'h-12 w-12 rounded-xl flex items-center justify-center transition-colors',
+                  selectedMode === 'manual'
+                    ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/30'
+                    : 'bg-muted text-muted-foreground group-hover:bg-muted/80'
+                )}
+              >
+                <SlidersHorizontal className="h-6 w-6" />
+              </div>
+
+              <div
+                className={cn(
+                  'h-5 w-5 rounded-full flex items-center justify-center border transition-all',
+                  selectedMode === 'manual'
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-muted-foreground/40 bg-background'
+                )}
+              >
+                {selectedMode === 'manual' && <Check className="h-3 w-3 stroke-[3]" />}
+              </div>
+            </div>
+
+            {/* Konten Card */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-foreground">
+                  Pilih Sendiri
+                </h3>
+                <Badge variant="outline" className="text-[10px] text-muted-foreground font-medium">
+                  Manual
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Tentukan sendiri kombinasi arsitektur per kategori (Frontend, Backend, Database, Auth, dan DevOps) sesuai standar tim Anda.
+              </p>
+            </div>
+
+            {/* Poin Keunggulan */}
+            <div className="space-y-1.5 pt-2 border-t border-border/60 text-xs text-foreground/80">
+              <div className="flex items-center gap-2 text-[11px]">
+                <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span>Kendali penuh atas setiap layer aplikasi</span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px]">
+                <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span>Daftar preset framework populer & opsi custom</span>
+              </div>
+              <div className="flex items-center gap-2 text-[11px]">
+                <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span>Cocok untuk kebutuhan spesifik perusahaan</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-6">
+            <span
+              className={cn(
+                'text-xs font-semibold block text-center py-2 rounded-lg transition-colors',
+                selectedMode === 'manual'
+                  ? 'text-primary'
+                  : 'text-muted-foreground'
+              )}
+            >
+              {selectedMode === 'manual' ? 'Pilihan Terpilih' : 'Klik untuk memilih'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tombol Eksekusi Bawah */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-border">
+        <p className="text-xs text-muted-foreground text-center sm:text-left">
+          {selectedMode === 'ai'
+            ? 'AI akan menyusun konfigurasi stack terbaik secara otomatis lalu lanjut ke penyusunan BRD.'
+            : 'Anda akan diarahkan ke form pilihan kategori manual untuk memilih setiap teknologi.'}
+        </p>
+
+        {selectedMode === 'ai' ? (
+          <Button
+            size="lg"
+            onClick={handleAiGenerateAndProceed}
+            disabled={generatingAi}
+            className="w-full sm:w-auto gap-2 font-medium"
+          >
+            {generatingAi ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Menghasilkan Rekomendasi...</span>
+              </>
+            ) : (
+              <>
+                <span>Lanjut</span>
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
+          </Button>
+        ) : (
+          <Button
+            size="lg"
+            onClick={() => setView('manual')}
+            className="w-full sm:w-auto gap-2 font-medium"
+          >
+            <span>Lanjut</span>
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        )}
       </div>
     </div>
   );

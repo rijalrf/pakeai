@@ -4,9 +4,20 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Sparkles, Loader2, ArrowRight, Check, CheckCircle2, HelpCircle } from 'lucide-react';
+import { Sparkles, Loader2, ArrowRight, Check, CheckCircle2, HelpCircle, Lock } from 'lucide-react';
 import { api } from '@/lib/http';
 import { cn } from '@/lib/utils';
+
+const STAGE_ORDER: Record<string, number> = {
+  chat: 0,
+  interview: 1,
+  techstack: 2,
+  brd: 3,
+  tree: 4,
+  board: 5,
+  guide: 6,
+  done: 7,
+};
 
 type InterviewQuestion = {
   id: string;
@@ -28,6 +39,7 @@ export function InterviewPage() {
   const [recommendedIds, setRecommendedIds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const [recommendingIndex, setRecommendingIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -35,11 +47,16 @@ export function InterviewPage() {
 
     const loadInterview = async () => {
       try {
+        const projectRes = await api<{ project?: { wizardStep?: string } }>(`/api/projects/${projectId}`);
+        const currentStep = projectRes.project?.wizardStep || 'interview';
+        const locked = (STAGE_ORDER[currentStep] ?? 1) > STAGE_ORDER.interview;
+        setIsLocked(locked);
+
         let discoveryRes = await api<{ questions?: any[] }>(`/api/projects/${projectId}/discovery`);
         let qList = discoveryRes.questions || [];
 
-        // Jika belum ada pertanyaan sama sekali, generate baru
-        if (qList.length === 0) {
+        // Jika belum ada pertanyaan sama sekali dan belum terkunci, generate baru
+        if (qList.length === 0 && !locked) {
           await api(`/api/projects/${projectId}/interview/generate`, { method: 'POST' });
           discoveryRes = await api<{ questions?: any[] }>(`/api/projects/${projectId}/discovery`);
           qList = discoveryRes.questions || [];
@@ -78,7 +95,7 @@ export function InterviewPage() {
   }, [projectId]);
 
   const handleToggleOption = (q: InterviewQuestion, option: string) => {
-    if (saving) return;
+    if (saving || isLocked) return;
     const isMultiple = q.type === 'checkbox';
 
     setAnswers((prev) => {
@@ -100,7 +117,7 @@ export function InterviewPage() {
   };
 
   const handleToggleOther = (q: InterviewQuestion) => {
-    if (saving) return;
+    if (saving || isLocked) return;
     const otherKey = `other:${q.id}`;
     const isMultiple = q.type === 'checkbox';
 
@@ -123,11 +140,12 @@ export function InterviewPage() {
   };
 
   const handleOtherTextChange = (questionId: string, value: string) => {
-    if (saving) return;
+    if (saving || isLocked) return;
     setOthers((prev) => ({ ...prev, [questionId]: value }));
   };
 
   const getRecommendation = async (index: number) => {
+    if (isLocked) return;
     const q = questions[index];
     if (!q) return;
 
@@ -257,10 +275,22 @@ export function InterviewPage() {
 
   return (
     <div className="max-w-4xl mx-auto w-full space-y-6">
+      {/* Banner terkunci jika sudah lewat interview */}
+      {isLocked && (
+        <div className="flex items-center gap-2.5 p-3.5 bg-muted/70 border border-border rounded-xl text-xs text-muted-foreground shadow-xs">
+          <Lock className="h-4 w-4 text-primary shrink-0" />
+          <span>
+            Tahap interview telah selesai dan terkunci (Read-Only). Jawaban kebutuhan aplikasi tersimpan permanen dan tidak dapat diubah lagi.
+          </span>
+        </div>
+      )}
+
       {/* Subheader status & progress */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
         <p className="text-xs text-muted-foreground">
-          Pertanyaan bertanda (<span className="text-destructive font-bold">*</span>) wajib dijawab. Pertanyaan yang tidak dipilih otomatis dilewati.
+          {isLocked
+            ? 'Menampilkan ringkasan jawaban kebutuhan aplikasi yang telah dikonfirmasi.'
+            : 'Pertanyaan bertanda (*) wajib dijawab. Pertanyaan yang tidak dipilih otomatis dilewati.'}
         </p>
         <span className="text-xs text-muted-foreground bg-muted/60 px-3 py-1 rounded-full shrink-0 self-start sm:self-auto">
           {answeredCount} dari {questions.length} dijawab
@@ -318,20 +348,22 @@ export function InterviewPage() {
                       </div>
                     </div>
 
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => getRecommendation(idx)}
-                      disabled={recommendingIndex === idx || saving}
-                      className="gap-1.5 shrink-0 self-start text-xs border-border/80"
-                    >
-                      {recommendingIndex === idx ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-3.5 w-3.5 text-primary" />
-                      )}
-                      Rekomendasi AI
-                    </Button>
+                    {!isLocked && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => getRecommendation(idx)}
+                        disabled={recommendingIndex === idx || saving}
+                        className="gap-1.5 shrink-0 self-start text-xs border-border/80"
+                      >
+                        {recommendingIndex === idx ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3.5 w-3.5 text-primary" />
+                        )}
+                        Rekomendasi AI
+                      </Button>
+                    )}
                   </div>
                 </CardHeader>
 
@@ -348,10 +380,11 @@ export function InterviewPage() {
                           <button
                             key={optIdx}
                             type="button"
-                            disabled={saving}
+                            disabled={saving || isLocked}
                             onClick={() => handleToggleOption(q, option)}
                             className={cn(
                               'w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all text-sm',
+                              isLocked ? 'cursor-default' : '',
                               isSelected
                                 ? 'border-primary bg-primary/10 dark:bg-primary/20 text-foreground ring-1 ring-primary shadow-xs font-medium'
                                 : 'border-border bg-card/60 hover:bg-accent/50 hover:border-primary/40 text-foreground/90'
@@ -377,10 +410,11 @@ export function InterviewPage() {
                     <div className="space-y-2">
                       <button
                         type="button"
-                        disabled={saving}
+                        disabled={saving || isLocked}
                         onClick={() => handleToggleOther(q)}
                         className={cn(
                           'w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all text-sm',
+                          isLocked ? 'cursor-default' : '',
                           hasOther
                             ? 'border-primary bg-primary/10 dark:bg-primary/20 text-foreground ring-1 ring-primary shadow-xs font-medium'
                             : 'border-border bg-card/60 hover:bg-accent/50 hover:border-primary/40 text-foreground/90'
@@ -406,7 +440,7 @@ export function InterviewPage() {
                             placeholder="Ketik jawaban spesifik Anda di sini..."
                             value={others[q.id] || ''}
                             onChange={(e) => handleOtherTextChange(q.id, e.target.value)}
-                            disabled={saving}
+                            disabled={saving || isLocked}
                             className="text-sm bg-background border-primary/50 focus-visible:ring-primary"
                             autoFocus
                           />
@@ -430,7 +464,12 @@ export function InterviewPage() {
         {/* Footer Tombol Aksi */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-border">
           <div className="text-xs text-muted-foreground">
-            {!isMandatoryComplete ? (
+            {isLocked ? (
+              <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                <Lock className="h-3.5 w-3.5 text-primary" />
+                Tahap ini terkunci. Jawaban tidak dapat diubah lagi.
+              </span>
+            ) : !isMandatoryComplete ? (
               <span className="text-destructive font-medium">
                 Masih ada pertanyaan wajib (*) yang belum dijawab ({mandatoryAnsweredCount}/{mandatoryQuestions.length})
               </span>
@@ -441,19 +480,30 @@ export function InterviewPage() {
             )}
           </div>
 
-          <Button
-            size="lg"
-            onClick={saveAndContinue}
-            disabled={saving || !canSubmit()}
-            className="w-full sm:w-auto gap-2"
-          >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
+          {isLocked ? (
+            <Button
+              size="lg"
+              onClick={() => navigate(`/projects/${projectId}/techstack`)}
+              className="w-full sm:w-auto gap-2"
+            >
+              <span>Lanjut ke Tech Stack</span>
               <ArrowRight className="h-4 w-4" />
-            )}
-            Lanjut ke Tech Stack
-          </Button>
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              onClick={saveAndContinue}
+              disabled={saving || !canSubmit()}
+              className="w-full sm:w-auto gap-2"
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRight className="h-4 w-4" />
+              )}
+              Lanjut ke Tech Stack
+            </Button>
+          )}
         </div>
       </div>
     </div>

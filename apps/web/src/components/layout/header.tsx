@@ -1,5 +1,7 @@
-// Header global: logo kiri, judul halaman di tengah, kanan berisi toggle tema dan menu pengguna.
+// Header global: logo & judul halaman di kiri, nama project aktif, toggle tema, dan menu pengguna di kanan.
 import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/http';
 import { signOut, useSession } from '@/lib/auth-client';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import {
@@ -83,34 +85,59 @@ export function Header() {
   const location = useLocation();
   const pageInfo = getPageHeaderInfo(location.pathname);
 
+  // Ambil projectId jika sedang berada di sub-halaman proyek
+  const projectMatch = location.pathname.match(/^\/projects\/([^/]+)/);
+  const projectId = projectMatch && projectMatch[1] && projectMatch[1] !== 'new' && projectMatch[1] !== 'undefined'
+    ? projectMatch[1]
+    : null;
+
+  const { data: projectData } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => api<{ project: { id: string; name: string } }>(`/api/projects/${projectId}`),
+    enabled: !!projectId,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const projectName = projectData?.project?.name;
+
   return (
     <header className="sticky top-0 border-b bg-background/95 backdrop-blur-xs z-50">
       <div className="px-6 py-2.5 flex items-center justify-between gap-4">
-        {/* Kiri: logo */}
-        <div className="flex items-center min-w-[160px]">
-          <Link to="/" className="font-semibold text-xl">
+        {/* Kiri: Logo pake.ai + Pemisah + Judul & Subjudul Halaman */}
+        <div className="flex items-center gap-3.5 min-w-0">
+          <Link to="/" className="font-semibold text-xl shrink-0">
             <span className="text-green-600 dark:text-green-400">pake</span>.ai
           </Link>
+
+          {pageInfo && (
+            <>
+              <div className="h-5 w-[1px] bg-border shrink-0" />
+              <div className="min-w-0">
+                <h1 className="text-sm sm:text-base font-semibold text-foreground tracking-tight truncate leading-tight">
+                  {pageInfo.title}
+                </h1>
+                {pageInfo.subtitle && (
+                  <p className="text-[11px] sm:text-xs text-muted-foreground truncate leading-tight mt-0.5 hidden sm:block">
+                    {pageInfo.subtitle}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
-        {/* Tengah: title & subtitle halaman */}
-        {pageInfo ? (
-          <div className="flex-1 text-center min-w-0 px-2">
-            <h1 className="text-base font-semibold text-foreground tracking-tight truncate leading-tight">
-              {pageInfo.title}
-            </h1>
-            {pageInfo.subtitle && (
-              <p className="text-xs text-muted-foreground truncate leading-tight mt-0.5">
-                {pageInfo.subtitle}
-              </p>
-            )}
-          </div>
-        ) : (
-          <div className="flex-1" />
-        )}
+        {/* Kanan: Nama Project Aktif + Toggle Tema + Menu Pengguna */}
+        <div className="flex items-center gap-2.5 shrink-0 justify-end">
+          {projectName && (
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-muted/60 border border-border/80 text-xs font-medium text-foreground max-w-[180px] sm:max-w-[240px] truncate shadow-2xs"
+              title={`Proyek Aktif: ${projectName}`}
+            >
+              <FolderGit2 className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span className="truncate">{projectName}</span>
+            </div>
+          )}
 
-        {/* Kanan: toggle tema + menu pengguna */}
-        <div className="flex items-center gap-2 min-w-[160px] justify-end">
           <ThemeToggle />
           {data?.user ? (
             <DropdownMenu>

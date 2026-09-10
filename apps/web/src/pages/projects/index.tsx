@@ -4,9 +4,35 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/http';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Plus, ArrowRight } from 'lucide-react';
 
-type Project = { id: string; name: string; idea: string; status: string; updatedAt: string };
+type Project = {
+  id: string;
+  name: string;
+  idea: string;
+  status: string;
+  wizardStep?: string;
+  updatedAt: string;
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  chat: 'Brainstorming',
+  interview: 'Interview',
+  techstack: 'Tech Stack',
+  brd: 'Dokumen BRD',
+  tree: 'Diagram Struktur',
+  board: 'Board Task',
+  guide: 'Panduan Eksekusi',
+  done: 'Selesai',
+};
+
+function getProjectStageUrl(p: Project): string {
+  const step = p.wizardStep || 'interview';
+  if (step === 'done') return `/projects/${p.id}/board`;
+  if (step === 'chat') return `/projects/${p.id}/interview`;
+  return `/projects/${p.id}/${step}`;
+}
 
 export function ProjectsPage() {
   const navigate = useNavigate();
@@ -37,15 +63,25 @@ export function ProjectsPage() {
         {projectsQ.data?.projects.map((p) => (
           <Card
             key={p.id}
-            className="hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => navigate(`/projects/${p.id}/interview`)}
+            className="hover:shadow-md transition-shadow cursor-pointer flex flex-col justify-between"
+            onClick={() => navigate(getProjectStageUrl(p))}
           >
             <CardHeader>
-              <CardTitle className="text-base">{p.name}</CardTitle>
-              <p className="text-xs text-muted-foreground line-clamp-2">{p.idea}</p>
+              <div className="flex items-start justify-between gap-2">
+                <CardTitle className="text-base leading-snug">{p.name}</CardTitle>
+                <Badge variant="outline" className="text-[10px] shrink-0 font-medium">
+                  {STAGE_LABELS[p.wizardStep || 'interview'] || p.wizardStep}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{p.idea}</p>
             </CardHeader>
-            <CardContent>
-              <span className="text-xs text-muted-foreground">Status: {p.status}</span>
+            <CardContent className="pt-0">
+              <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-3">
+                <span>Status: {p.status}</span>
+                <span className="flex items-center gap-1 text-primary font-medium hover:underline text-[11px]">
+                  Buka Tahap Terakhir <ArrowRight className="h-3 w-3" />
+                </span>
+              </div>
             </CardContent>
           </Card>
         ))}

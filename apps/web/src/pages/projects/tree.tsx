@@ -17,7 +17,19 @@ import {
   Laptop,
   CheckCircle2,
   ListTree,
+  Lock,
 } from 'lucide-react';
+
+const STAGE_ORDER: Record<string, number> = {
+  chat: 0,
+  interview: 1,
+  techstack: 2,
+  brd: 3,
+  tree: 4,
+  board: 5,
+  guide: 6,
+  done: 7,
+};
 import { api } from '@/lib/http';
 import { cn } from '@/lib/utils';
 
@@ -45,6 +57,7 @@ export function TreePage() {
   const [nodes, setNodes] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const [selectedNode, setSelectedNode] = useState<ProcessedNode | null>(null);
   const [viewMode, setViewMode] = useState<'architecture' | 'full'>('architecture');
 
@@ -61,10 +74,15 @@ export function TreePage() {
 
     const loadOrGenerateTree = async () => {
       try {
+        const projectRes = await api<{ project?: { wizardStep?: string } }>(`/api/projects/${projectId}`);
+        const currentStep = projectRes.project?.wizardStep || 'tree';
+        const locked = (STAGE_ORDER[currentStep] ?? 4) > STAGE_ORDER.tree;
+        setIsLocked(locked);
+
         const json = await api<{ nodes?: TreeNode[] }>(`/api/projects/${projectId}/tree`);
         if (json.nodes && json.nodes.length > 0) {
           setNodes(json.nodes);
-        } else {
+        } else if (!locked) {
           await generateTree();
         }
       } catch (err) {
@@ -78,7 +96,7 @@ export function TreePage() {
   }, [projectId]);
 
   const generateTree = async () => {
-    if (!projectId) return;
+    if (!projectId || isLocked) return;
     setGenerating(true);
 
     try {
@@ -283,6 +301,16 @@ export function TreePage() {
 
   return (
     <div className="w-full space-y-5">
+      {/* Banner terkunci jika sudah lewat Tree */}
+      {isLocked && (
+        <div className="flex items-center gap-2.5 p-3.5 bg-muted/70 border border-border rounded-xl text-xs text-muted-foreground shadow-xs">
+          <Lock className="h-4 w-4 text-primary shrink-0" />
+          <span>
+            Tahap Diagram Struktur telah selesai dan terkunci (Read-Only). Diagram arsitektur pohon tersimpan permanen dan tidak dapat di-generate ulang.
+          </span>
+        </div>
+      )}
+
       {/* Toolbar Kontrol Level & Aksi */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
@@ -326,16 +354,18 @@ export function TreePage() {
             </button>
           </div>
 
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={generateTree}
-            disabled={generating}
-            className="gap-1.5 text-xs h-9"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-primary" />
-            <span>Generate Ulang</span>
-          </Button>
+          {!isLocked && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={generateTree}
+              disabled={generating}
+              className="gap-1.5 text-xs h-9"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <span>Generate Ulang</span>
+            </Button>
+          )}
 
           <Button
             size="sm"
