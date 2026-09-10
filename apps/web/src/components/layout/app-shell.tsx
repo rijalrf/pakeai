@@ -19,7 +19,7 @@ export function AppShell({ children, title, back }: { children: React.ReactNode;
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             )}
-            <Link to="/dashboard" className="font-semibold">pakeai</Link>
+            <Link to="/" className="font-semibold">pakeai</Link>
             {title && <span className="text-muted-foreground">/ {title}</span>}
           </div>
           <div className="flex items-center gap-3">

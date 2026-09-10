@@ -11,6 +11,7 @@ import { BrdPage } from '@/pages/projects/brd';
 import { TreePage } from '@/pages/projects/tree';
 import { BoardPage } from '@/pages/projects/board';
 import { GuidePage } from '@/pages/projects/guide';
+import { SettingsPage } from '@/pages/projects/settings';
 import WizardLayout from '@/components/layout/wizard-layout';
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -44,6 +45,7 @@ export function App() {
         <Route path="/projects/:projectId/tree" element={<TreePage />} />
         <Route path="/projects/:projectId/board" element={<BoardPage />} />
         <Route path="/projects/:projectId/guide" element={<GuidePage />} />
+        <Route path="/projects/:projectId/settings" element={<SettingsPage />} />
       </Route>
 
       {/* Fallback 404 */}
