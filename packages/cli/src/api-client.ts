@@ -58,7 +58,17 @@ export type NextTask = {
   task?: { id: string; title: string; description: string | null; layer: string; order: number; status: string };
   message?: string;
 };
-export type ContextResp = { ok: true; taskId: string; markdown: string };
+export type ContextResp = {
+  ok: true;
+  taskId: string;
+  markdown: string;
+  guard?: {
+    layer?: string;
+    forbidden?: string[];
+    files_readonly?: string[];
+    validation_commands?: string[];
+  };
+};
 export type StatusResp = { ok: true; taskId: string; status: string; checkpointPending?: boolean; layer?: string };
 export type BrdResponse = { brd: { id: string; content: unknown; version: number; generatedAt: string } };
 export type ProjectScope = { id: string; name: string };

@@ -4,6 +4,7 @@
 import { Command } from 'commander';
 import { loadConfig, saveConfig, clearConfig, type Config } from './config.js';
 import { api, ApiError, probeHealth } from './api-client.js';
+import { runGuard, GuardError } from './guard.js';
 
 const program = new Command();
 program
@@ -171,14 +172,38 @@ program
 
 program
   .command('done [id]')
-  .description('Tandai task selesai. Akan info checkpoint PENDING jika layer selesai.')
-  .action(async (id?: string) => {
+  .description('Tandai task selesai. Menjalankan runtime scope guard (Cek file terlarang + validation commands) sebelum submit.')
+  .option('--force', 'Lewati runtime scope guard.')
+  .option('--dir <path>', 'Direktori project. Default: direktori saat ini.')
+  .action(async (id?: string, opts?: { force?: boolean; dir?: string }) => {
     const cfg = loadConfig();
     const taskId = id ?? cfg.activeTaskId;
     if (!taskId) {
       console.error('Tidak ada task aktif. Jalankan: pakeai next');
       process.exit(1);
     }
+
+    if (!opts?.force) {
+      // Ambil guard spec dari context endpoint
+      const ctx = await api.context(cfg, taskId);
+      if (ctx.guard) {
+        const cwd = opts?.dir ?? process.cwd();
+        try {
+          await runGuard(ctx.guard, cwd);
+        } catch (e) {
+          if (e instanceof GuardError) {
+            console.error(e.message);
+            process.exit(1);
+          }
+          throw e;
+        }
+      } else {
+        console.log('Task ini tidak memiliki guard spec. Lewati validasi lokal.');
+      }
+    } else {
+      console.log('--force: lewati runtime scope guard.');
+    }
+
     const r = await api.done(cfg, taskId);
     console.log(`Task ${r.taskId} -> ${r.status}`);
     if (r.checkpointPending) {
