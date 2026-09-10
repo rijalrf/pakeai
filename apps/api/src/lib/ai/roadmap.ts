@@ -30,7 +30,9 @@ const RoadmapSchema = z.object({
 export type RoadmapData = z.infer<typeof RoadmapSchema>;
 
 export async function generateRoadmapFromBRD(brd: BrdData): Promise<RoadmapData> {
-  const system = `Anda adalah tech lead. Pecah BRD menjadi fase & fitur yang bisa dieksekusi sebagai task atomic. Setiap fase harus berurutan secara logis (DATABASE -> BACKEND -> FRONTEND -> INTEGRATION). Fitur dalam fase boleh punya dependensi satu sama lain.`;
+  const system = `Anda adalah Principal Systems Architect. Pecah BRD menjadi Feature Execution Graph terstruktur.
+Setiap fase mengelompokkan layer delivery (DATABASE, BACKEND, FRONTEND, INTEGRATION).
+Setiap fitur dalam fase wajib memodelkan dependensi logis (dependsOn) ke fitur prasyarat agar eksekusi task otonom berjalan teratur tanpa race conditions atau circular dependency.`;
 
   const user = `BRD:
 ${JSON.stringify(brd, null, 2)}
@@ -44,13 +46,23 @@ Schema JSON:
       "description"?: string,
       "layer": "DATABASE" | "BACKEND" | "FRONTEND" | "INTEGRATION",
       "features": [
-        { "id": string (slug), "title": string, "description"?: string, "dependsOn": string[] (id fitur lain yang jadi prasyarat) }
+        {
+          "id": string (slug unik, mis. "auth-db", "product-api", "cart-ui"),
+          "title": string,
+          "description"?: string,
+          "dependsOn": string[] (array slug fitur prasyarat yang harus selesai lebih dulu)
+        }
       ]
     }
   ]
 }
 
-Minimal 3 fase, total fitur 5-15. Kembalikan HANYA JSON.`;
+PRINSIP EXECUTION GRAPH:
+1. Fitur layer BACKEND umumnya bergantung (dependsOn) pada fitur DATABASE terkait.
+2. Fitur layer FRONTEND umumnya bergantung pada fitur BACKEND terkait.
+3. Fitur INTEGRATION bergantung pada fitur FRONTEND & BACKEND inti.
+4. Jangan membuat siklus ketergantungan (circular dependency).
+5. Minimal 3 fase, total fitur 5-15. Kembalikan HANYA JSON.`;
 
   return generateJson({ system, user, schema: RoadmapSchema });
 }

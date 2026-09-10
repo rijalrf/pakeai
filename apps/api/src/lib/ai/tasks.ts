@@ -113,6 +113,17 @@ Aturan bounded context:
 - Task layer FRONTEND: bebas di apps/web/src/**, JANGAN sentuh apps/api/**.
 - forbidden WAJIB berisi path di luar layer (mis. BACKEND -> ["apps/web/**", "apps/api/prisma/**"]).
 
+Aturan taskId dan depends_on (WAJIB KONSISTEN):
+- Gunakan format 'taskId' standar: TASK-001, TASK-002, TASK-003, dst secara berurutan.
+- 'depends_on' HARUS mereferensikan 'taskId' task prasyarat (misal ["TASK-001"]). Jangan gunakan ID sembarang agar Execution Graph dapat terhubung sempurna.
+
+Aturan khusus FRONTEND (Design System Contract & UI/UX Specs):
+- Terapkan Design System Contract: mobile-first, clean layout, semantic HTML, dan konsistensi visual.
+- Spacing terstandarisasi: gunakan kelipatan 4px (Tailwind: gap-1, gap-2, p-3, p-4, p-6, space-y-4).
+- Border Radius konsisten: rounded-sm, rounded-md, rounded-lg.
+- Tangani state interaksi secara lengkap pada acceptance criteria: idle, loading (spinner/skeleton), error, dan success.
+- Hindari duplikasi komponen dan hindari icon/elemen dekoratif tanpa fungsi nyata.
+
 Aturan acceptance criteria (HARUS DIPATUHI):
 - Setiap acceptance criterion HARUS measurable dan testable, bukan subjektif.
 - ❌ SALAH: "Fitur login berhasil"
