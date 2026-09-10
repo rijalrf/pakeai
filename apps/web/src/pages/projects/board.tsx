@@ -5,7 +5,16 @@ import { api } from '@/lib/http';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
+import { Loader2, ArrowRight, RefreshCw, Activity, Zap, Clock, CheckCircle2 } from 'lucide-react';
+
+type AiMetricsSummary = {
+  totalCalls: number;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  avgLatencyMs: number;
+  successRate: number;
+};
 
 type Task = {
   id: string;
@@ -33,10 +42,19 @@ export function BoardPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [metrics, setMetrics] = useState<AiMetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
+
+  const loadMetrics = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const res = await api<{ summary: AiMetricsSummary }>(`/api/projects/${projectId}/ai-metrics`);
+      if (res.summary) setMetrics(res.summary);
+    } catch {}
+  }, [projectId]);
 
   const loadTasks = useCallback(
     async (mode: 'initial' | 'manual' | 'silent' = 'initial') => {
@@ -50,6 +68,7 @@ export function BoardPage() {
         } else if (mode === 'initial') {
           await generateTasks();
         }
+        loadMetrics();
       } catch (err) {
         console.error('Gagal load tasks:', err);
       } finally {
@@ -57,7 +76,7 @@ export function BoardPage() {
         if (mode === 'manual') setRefreshing(false);
       }
     },
-    [projectId]
+    [projectId, loadMetrics]
   );
 
   // Load tasks on mount
@@ -170,6 +189,40 @@ export function BoardPage() {
           </Button>
         </div>
       </div>
+
+      {/* Widget Observabilitas AI (Bab 39) */}
+      {metrics && metrics.totalCalls > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="p-3">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Panggilan AI</span>
+              <Activity className="h-4 w-4 text-primary" />
+            </div>
+            <div className="text-xl font-bold mt-1 font-mono">{metrics.totalCalls}</div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Total Token</span>
+              <Zap className="h-4 w-4 text-amber-500" />
+            </div>
+            <div className="text-xl font-bold mt-1 font-mono">{metrics.totalTokens.toLocaleString('id-ID')}</div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Rata-rata Latensi</span>
+              <Clock className="h-4 w-4 text-blue-500" />
+            </div>
+            <div className="text-xl font-bold mt-1 font-mono">{(metrics.avgLatencyMs / 1000).toFixed(1)}s</div>
+          </Card>
+          <Card className="p-3">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Tingkat Keberhasilan</span>
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            </div>
+            <div className="text-xl font-bold mt-1 font-mono">{metrics.successRate}%</div>
+          </Card>
+        </div>
+      )}
 
       {/* Kanban Columns */}
       <div className="mb-4">

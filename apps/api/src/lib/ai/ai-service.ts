@@ -1,8 +1,10 @@
 // AI service: pilih provider via env, generate JSON dengan retry Zod.
-// Mendukung observabilitas token, latensi, dan retry (Bab 39).
+// Mendukung observabilitas token, latensi, retry (Bab 39), dan model routing (Bab 25).
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
+
+export type ModelTier = 'reasoning' | 'cheap';
 
 export type GenerateJsonParams<T> = {
   system: string;
@@ -11,7 +13,37 @@ export type GenerateJsonParams<T> = {
   maxRetries?: number;
   agentName?: string;
   projectId?: string;
+  tier?: ModelTier;
+  model?: string;
 };
+
+// ponytail: static set covers current system agents, add dynamic tier lookup when agents become plugins
+const REASONING_AGENTS = new Set([
+  'CanonicalBrdSpec',
+  'FeatureExecutionGraph',
+  'UiSpecArchitect',
+  'DiscoveryQuestions',
+  'TechStackArchitect',
+  'replyChat',
+  'finalizeChatSession',
+  'generateInterviewFromChat',
+  'recommendInterviewAnswer',
+  'generateTreeFromBrd',
+]);
+
+export function resolveModel(opts?: { tier?: ModelTier; agentName?: string; modelOverride?: string }): string {
+  if (opts?.modelOverride) return opts.modelOverride;
+
+  const defaultModel = process.env.OPENAI_MODEL ?? 'ai-builder';
+  const reasoningModel = process.env.OPENAI_MODEL_REASONING ?? defaultModel;
+  const cheapModel = process.env.OPENAI_MODEL_CHEAP ?? defaultModel;
+
+  if (opts?.tier === 'reasoning') return reasoningModel;
+  if (opts?.tier === 'cheap') return cheapModel;
+  if (opts?.agentName && REASONING_AGENTS.has(opts.agentName)) return reasoningModel;
+
+  return defaultModel;
+}
 
 const provider = process.env.AI_PROVIDER ?? 'openai';
 
@@ -40,9 +72,11 @@ export async function generateJson<T>({
   maxRetries = 2,
   agentName = 'ai-agent',
   projectId,
+  tier,
+  model: modelOverride,
 }: GenerateJsonParams<T>): Promise<T> {
   const startTime = Date.now();
-  const model = process.env.OPENAI_MODEL ?? 'ai-builder';
+  const model = resolveModel({ tier, agentName, modelOverride });
   let lastErr: unknown;
 
   for (let i = 0; i <= maxRetries; i++) {
@@ -121,11 +155,11 @@ export async function generateJson<T>({
 export async function generateText(
   system: string,
   user: string,
-  opts?: { agentName?: string; projectId?: string }
+  opts?: { agentName?: string; projectId?: string; tier?: ModelTier; model?: string }
 ): Promise<string> {
   const startTime = Date.now();
-  const model = process.env.OPENAI_MODEL ?? 'ai-builder';
   const agentName = opts?.agentName ?? 'text-agent';
+  const model = resolveModel({ tier: opts?.tier, agentName, modelOverride: opts?.model });
 
   try {
     const resp = await client.chat.completions.create({

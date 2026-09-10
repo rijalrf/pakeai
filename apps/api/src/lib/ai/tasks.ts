@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import { generateJson } from './ai-service.js';
 import type { RoadmapData } from './roadmap.js';
+import type { UiSpecData } from './ui-spec.js';
 
 const TasksSchema = z.object({
   tasks: z
@@ -40,6 +41,7 @@ export async function generateTasksFromRoadmap(args: {
     functionalRequirements?: Array<{ id: string; title: string; description: string; priority?: string }>;
     businessRules?: Array<{ id: string; description: string }>;
   };
+  uiSpec?: UiSpecData | null;
   projectId?: string;
 }): Promise<TaskGen[]> {
   const system = `Anda adalah Principal AI Task Architect. Tugas Anda adalah memecah fitur aplikasi menjadi atomic tasks terstruktur yang dirancang agar DAPAT DIEKSEKUSI DENGAN SUKSES OLEH LOW-COST AI CODING AGENT ATAU JUNIOR DEVELOPER.
@@ -60,10 +62,15 @@ PRINSIP ATOMIC & LOW-COST COMPATIBILITY:
     ? `\nATURAN BISNIS TERSEDIA:\n${args.brd.businessRules.map((b) => `- [${b.id}] ${b.description}`).join('\n')}`
     : '';
 
+  const uiSpecText = args.uiSpec
+    ? `\nSPESIFIKASI UI/UX TERSTRUKTUR (DEDICATED UI SPEC CONTRACT):\n${JSON.stringify(args.uiSpec, null, 2)}\n(Gunakan halaman, komponen, tata letak, dan state interaktif di atas secara ketat untuk semua task berlayer FRONTEND)`
+    : '';
+
   const user = `ROADMAP:
 ${JSON.stringify(args.roadmap, null, 2)}
 ${reqText}
 ${rulesText}
+${uiSpecText}
 
 NAMA PROJECT: ${args.projectName}
 

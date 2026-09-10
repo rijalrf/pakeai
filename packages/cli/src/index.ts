@@ -2,6 +2,8 @@
 // pakeai CLI — agent loop driver untuk AI coding agent.
 // Tanpa mock fallback. Semua error dilaporkan eksplisit.
 import { Command } from 'commander';
+import fs from 'node:fs';
+import path from 'node:path';
 import { loadConfig, saveConfig, clearConfig, type Config } from './config.js';
 import { api, ApiError, probeHealth } from './api-client.js';
 import { runGuard, GuardError } from './guard.js';
@@ -10,7 +12,7 @@ const program = new Command();
 program
   .name('pakeai')
   .description('CLI agent loop untuk pakeai (AI Planner). Dipakai oleh AI coding agent.')
-  .version('0.2.1');
+  .version('0.2.2');
 
 program
   .command('login <token>')
@@ -189,10 +191,27 @@ program
       if (ctx.guard) {
         const cwd = opts?.dir ?? process.cwd();
         try {
-          await runGuard(ctx.guard, cwd);
+          await runGuard(ctx.guard, cwd, taskId);
         } catch (e) {
           if (e instanceof GuardError) {
             console.error(e.message);
+            if (e.failureContext) {
+              try {
+                const dir = path.join(cwd, '.pakeai');
+                if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                fs.writeFileSync(
+                  path.join(dir, 'failure-context.json'),
+                  JSON.stringify(e.failureContext, null, 2),
+                  'utf-8'
+                );
+              } catch {}
+              console.error('\n=== FAILURE CONTEXT (STRUCTURED JSON) ===');
+              console.error(JSON.stringify(e.failureContext, null, 2));
+
+              try {
+                await api.fail(cfg, taskId, e.failureContext);
+              } catch {}
+            }
             process.exit(1);
           }
           throw e;
