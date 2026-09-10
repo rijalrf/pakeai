@@ -10,6 +10,7 @@ import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth.js';
 import { requireUser, type AuthedRequest } from './middleware/require-user.js';
 import { requireAgent, type AgentRequest } from './middleware/require-agent.js';
+import { requireAgentSimple } from './middleware/require-agent-simple.js';
 import { prisma } from './lib/prisma.js';
 import { toolsRegistry } from './tools/registry.js';
 import { z } from 'zod';
@@ -18,6 +19,12 @@ import { generateDiscoveryQuestions, DEFAULT_DISCOVERY_QUESTIONS } from './lib/a
 import { generateBRDFromDiscovery, BrdSchema } from './lib/ai/brd.js';
 import { generateRoadmapFromBRD } from './lib/ai/roadmap.js';
 import { generateTasksFromRoadmap } from './lib/ai/tasks.js';
+import { replyChat, finalizeChatSession, generateInterviewFromChat, recommendInterviewAnswer, recommendTechStack, generateTreeFromBrd } from './lib/ai/chat.js';
+
+// Hash token utility (mirrors requireAgent.middleware)
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 6655);
@@ -90,7 +97,7 @@ app.get('/api/projects/:id', requireUser, async (req: AuthedRequest, res) => {
 });
 
 // ============================================================
-// Agent Token (PAT) — user generates untuk project tertentu
+// Agent Token (PAT) — user generates Universal token untuk akses multiple projects
 // ============================================================
 
 app.post('/api/projects/:id/agent-tokens', requireUser, async (req: AuthedRequest, res) => {
@@ -101,45 +108,109 @@ app.post('/api/projects/:id/agent-tokens', requireUser, async (req: AuthedReques
 
   const token = 'pak_' + crypto.randomBytes(24).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  const record = await prisma.agentToken.create({
+
+  const tokenRecord = await prisma.agentToken.create({
     data: {
       userId: req.userId,
-      projectId: project.id,
       name: (req.body?.name as string) || 'Token CLI',
       tokenHash,
+      agentTokenScopes: {
+        create: { projectId: project.id },
+      },
     },
   });
-  // Token plaintext HANYA dikembalikan SEKALI di sini. Server hanya simpan hash.
+
   res.status(201).json({
-    id: record.id,
-    name: record.name,
-    projectId: record.projectId,
-    token, // tampilkan 1x, user harus copy
-    createdAt: record.createdAt,
+    id: tokenRecord.id,
+    name: tokenRecord.name,
+    projectId: project.id,
+    token, // tampilkan 1x
+    createdAt: tokenRecord.createdAt,
   });
 });
 
 app.get('/api/projects/:id/agent-tokens', requireUser, async (req: AuthedRequest, res) => {
   const tokens = await prisma.agentToken.findMany({
-    where: { projectId: req.params.id, userId: req.userId },
+    where: {
+      userId: req.userId,
+      agentTokenScopes: {
+        some: { projectId: req.params.id },
+      },
+    },
     orderBy: { createdAt: 'desc' },
-    select: { id: true, name: true, lastUsedAt: true, isRevoked: true, createdAt: true },
+    select: {
+      id: true,
+      name: true,
+      lastUsedAt: true,
+      isRevoked: true,
+      createdAt: true,
+    },
   });
+
   res.json({ tokens });
 });
 
 app.delete('/api/agent-tokens/:tokenId', requireUser, async (req: AuthedRequest, res) => {
   const token = await prisma.agentToken.findFirst({
     where: { id: req.params.tokenId, userId: req.userId },
+    include: { agentTokenScopes: true },
   });
   if (!token) return res.status(404).json({ error: 'Token tidak ditemukan.' });
-  await prisma.agentToken.update({ where: { id: token.id }, data: { isRevoked: true } });
+
+  // Optionally delete all scopes when revoking token
+  await prisma.agentTokenScope.deleteMany({
+    where: { tokenId: token.id }
+  });
+
+  await prisma.agentToken.update({
+    where: { id: token.id },
+    data: { isRevoked: true }
+  });
   res.json({ ok: true });
 });
 
 // ============================================================
 // Agent endpoints (CLI) — dilindungi PAT, terisolasi per project
 // ============================================================
+
+app.get('/api/agent/scopes', requireAgentSimple, async (req: Request, res) => {
+  // Get all projects accessible by this token
+  const authHeader = req.header('authorization') ?? '';
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({ error: 'Missing Authorization header' });
+  }
+
+  const token = match[1].trim();
+  const tokenHash = hashToken(token);
+
+  const record = await prisma.agentToken.findUnique({
+    where: { tokenHash },
+    include: {
+      agentTokenScopes: {
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (!record || record.isRevoked) {
+    return res.status(401).json({ error: 'Token tidak valid atau sudah dicabut.' });
+  }
+
+  const scopes = record.agentTokenScopes?.map(s => ({
+    id: s.projectId,
+    name: s.project.name,
+  })) || [];
+
+  res.json({ scopes });
+});
 
 app.get('/api/agent/whoami', requireAgent, (req: AgentRequest, res) => {
   res.json({ project: { id: req.agent.projectId, name: req.agent.projectName } });
@@ -322,7 +393,7 @@ app.get('/api/projects/:id/brd/download', requireUser, async (req: AuthedRequest
     return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
   }
 
-  const content = project.brd.content as Record<string, unknown>;
+  const content = (project.brd.content ?? {}) as any;
   const md = [
     `# Business Requirements Document (${project.name})`,
     ``,
@@ -527,9 +598,11 @@ app.post('/api/projects/:id/brd/generate', requireUser, async (req: AuthedReques
         where: { projectId: project.id },
         data: { content: brd, version: existing.version + 1 },
       });
+      await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'tree' } });
       return res.json({ brd: updated });
     }
     const created = await prisma.brd.create({ data: { projectId: project.id, content: brd } });
+    await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'tree' } });
     res.status(201).json({ brd: created });
   } catch (err) {
     res.status(502).json({ error: 'AI gagal menghasilkan BRD.', detail: (err as Error).message });
@@ -605,15 +678,64 @@ app.get('/api/projects/:id/roadmap', requireUser, async (req: AuthedRequest, res
   res.json({ phases: project.roadmap });
 });
 
-// Step 4: generate atomic tasks dari roadmap.
+// Step 4: generate atomic tasks dari roadmap (auto generate roadmap jika belum ada).
 app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequest, res) => {
-  const project = await prisma.project.findFirst({
+  let project = await prisma.project.findFirst({
     where: { id: req.params.id, userId: req.userId },
     include: {
+      brd: true,
       roadmap: { include: { features: { include: { dependencies: true } } } },
     },
   });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  // Auto-generate roadmap jika belum ada tapi BRD ada
+  if (project.roadmap.length === 0) {
+    if (!project.brd) return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
+    try {
+      const parsedBrd = BrdSchema.parse(project.brd.content);
+      const roadmapData = await generateRoadmapFromBRD(parsedBrd);
+      await prisma.roadmapPhase.deleteMany({ where: { projectId: project.id } });
+
+      const phaseMap = new Map<string, string>();
+      for (const p of roadmapData.phases) {
+        const created = await prisma.roadmapPhase.create({
+          data: { projectId: project.id, order: p.order, title: p.title, description: p.description, layer: p.layer },
+        });
+        for (const f of p.features) {
+          const fcreated = await prisma.roadmapFeature.create({
+            data: { phaseId: created.id, title: f.title, description: f.description },
+          });
+          phaseMap.set(f.id, fcreated.id);
+        }
+      }
+      for (const p of roadmapData.phases) {
+        for (const f of p.features) {
+          if (f.dependsOn.length === 0) continue;
+          const fromId = phaseMap.get(f.id);
+          if (!fromId) continue;
+          for (const dep of f.dependsOn) {
+            const toId = phaseMap.get(dep);
+            if (!toId) continue;
+            await prisma.roadmapDependency.create({ data: { featureId: fromId, dependsOnId: toId } });
+          }
+        }
+      }
+
+      // Re-fetch project dengan roadmap baru
+      const refetched = await prisma.project.findFirst({
+        where: { id: req.params.id, userId: req.userId },
+        include: {
+          brd: true,
+          roadmap: { include: { features: { include: { dependencies: true } } } },
+        },
+      });
+      if (refetched) project = refetched;
+    } catch (err) {
+      return res.status(502).json({ error: 'AI gagal menghasilkan roadmap untuk tasks.', detail: (err as Error).message });
+    }
+  }
+
   if (project.roadmap.length === 0) return res.status(400).json({ error: 'Roadmap belum ada.' });
 
   // Konversi Prisma ke shape yang dipahami AI generator.
@@ -680,6 +802,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
         },
       });
     }
+    await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'guide' } });
     res.json({ ok: true, count: generated.length });
   } catch (err) {
     res.status(502).json({ error: 'AI gagal menghasilkan tasks.', detail: (err as Error).message });
@@ -719,6 +842,7 @@ app.patch('/api/tasks/:taskId', requireUser, async (req: AuthedRequest, res) => 
 // ============================================================
 // Checkpoint (approval layer transition)
 // ============================================================
+
 app.get('/api/projects/:id/checkpoints', requireUser, async (req: AuthedRequest, res) => {
   const items = await prisma.checkpoint.findMany({
     where: { projectId: req.params.id },
@@ -736,6 +860,259 @@ app.post('/api/checkpoints/:id/approve', requireUser, async (req: AuthedRequest,
     data: { status: 'APPROVED', resolvedAt: new Date() },
   });
   res.json({ ok: true, checkpoint: updated });
+});
+
+// ============================================================
+// CHAT FLOW — Sesi chat brainstorming sebelum project dibuat
+// ============================================================
+
+app.post('/api/chat/sessions', requireUser, async (req: AuthedRequest, res) => {
+  const session = await prisma.chatSession.create({
+    data: { userId: req.userId },
+  });
+  res.status(201).json({ sessionId: session.id });
+});
+
+app.get('/api/chat/sessions/:id/messages', requireUser, async (req: AuthedRequest, res) => {
+  const session = await prisma.chatSession.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: { messages: { orderBy: { createdAt: 'asc' } } },
+  });
+  if (!session) return res.status(404).json({ error: 'Sesi chat tidak ditemukan.' });
+  res.json({ messages: session.messages });
+});
+
+const ChatMessageBodySchema = z.object({
+  content: z.string().min(1),
+  formAnswers: z.record(z.string(), z.string()).optional(), // jawaban form yang sudah diserialkan jadi teks
+});
+
+app.post('/api/chat/sessions/:id/messages', requireUser, async (req: AuthedRequest, res) => {
+  const parsed = ChatMessageBodySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Data tidak valid.' });
+
+  const session = await prisma.chatSession.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+  });
+  if (!session) return res.status(404).json({ error: 'Sesi chat tidak ditemukan.' });
+
+  // Simpan pesan user (text saja; formAnswers dianggap sudah jadi text di content)
+  await prisma.chatMessage.create({
+    data: { sessionId: session.id, role: 'user', content: parsed.data.content },
+  });
+
+  // Dapatkan AI response
+  let aiResult: { kind: string; content: string; payload?: unknown };
+  try {
+    aiResult = await replyChat(session.id);
+  } catch (err) {
+    console.warn('[chat] replyChat gagal:', (err as Error).message);
+    aiResult = { kind: 'text', content: "Maaf, terjadi kesalahan saat merespons." };
+  }
+
+  // Simpan AI response (payload bisa null atau JSON serializable object)
+  await prisma.chatMessage.create({
+    data: {
+      sessionId: session.id,
+      role: 'assistant',
+      kind: aiResult.kind,
+      content: aiResult.content,
+      payload: aiResult.payload ? JSON.stringify(aiResult.payload) : undefined,
+    },
+  });
+
+  res.json(aiResult);
+});
+
+app.post('/api/chat/sessions/:id/retry', requireUser, async (req: AuthedRequest, res) => {
+  const session = await prisma.chatSession.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+  });
+  if (!session) return res.status(404).json({ error: 'Sesi chat tidak ditemukan.' });
+
+  // Hapus pesan asisten terakhir yang error
+  const lastMsg = await prisma.chatMessage.findFirst({
+    where: { sessionId: session.id },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (lastMsg && lastMsg.role === 'assistant') {
+    await prisma.chatMessage.delete({ where: { id: lastMsg.id } });
+  }
+
+  let aiResult: { kind: string; content: string; payload?: unknown };
+  try {
+    aiResult = await replyChat(session.id);
+  } catch (err) {
+    console.warn('[chat] retry replyChat gagal:', (err as Error).message);
+    aiResult = { kind: 'text', content: "Maaf, terjadi kesalahan saat merespons." };
+  }
+
+  const created = await prisma.chatMessage.create({
+    data: {
+      sessionId: session.id,
+      role: 'assistant',
+      kind: aiResult.kind,
+      content: aiResult.content,
+      payload: aiResult.payload ? JSON.stringify(aiResult.payload) : undefined,
+    },
+  });
+
+  res.json({ ...aiResult, id: created.id });
+});
+
+app.post('/api/chat/sessions/:id/finalize', requireUser, async (req: AuthedRequest, res) => {
+  const session = await prisma.chatSession.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: { messages: { orderBy: { createdAt: 'asc' } } },
+  });
+  if (!session) return res.status(404).json({ error: 'Sesi chat tidak ditemukan.' });
+
+  try {
+    const result = await finalizeChatSession(session.id, req.userId);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: 'Gagal finalisasi project.', detail: (err as Error).message });
+  }
+});
+
+// ============================================================
+// WIZARD FLOW — Langkah-langkah setelah project created dari chat
+// ============================================================
+
+// Interview generation
+app.post('/api/projects/:id/interview/generate', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  try {
+    const questions = await generateInterviewFromChat(project.id);
+    await prisma.discoveryQuestion.deleteMany({ where: { projectId: project.id } });
+    const created = await Promise.all(
+      questions.filter(Boolean).map((q, idx) =>
+        prisma.discoveryQuestion.create({
+          data: { projectId: project.id, order: idx + 1, question: q.question, context: q.context || undefined },
+        })
+      )
+    );
+    res.json({ questions: created, aiGenerated: true });
+  } catch (err) {
+    console.warn('[interview] AI gagal generate dari chat, fallback default:', (err as Error).message);
+    await prisma.discoveryQuestion.deleteMany({ where: { projectId: project.id } });
+    const created = await Promise.all(
+      DEFAULT_DISCOVERY_QUESTIONS.map((q, idx) =>
+        prisma.discoveryQuestion.create({
+          data: { projectId: project.id, order: idx + 1, question: q.question, context: q.context || undefined },
+        })
+      )
+    );
+    res.json({ questions: created, aiGenerated: false });
+  }
+});
+
+app.post('/api/projects/:id/interview/recommend', requireUser, async (req: AuthedRequest, res) => {
+  const schema = z.object({ questionIndex: z.number().min(0) });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Data tidak valid.' });
+
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: { questions: { orderBy: { order: 'asc' } } },
+  });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  const question = project.questions[parsed.data.questionIndex];
+  if (!question) return res.status(404).json({ error: 'Pertanyaan tidak ditemukan.' });
+
+  try {
+    const rec = await recommendInterviewAnswer(project.id, question.question);
+    res.json({ recommendation: rec.answer, reasoning: rec.reasoning });
+  } catch (err) {
+    res.json({
+      recommendation: 'Solusi sederhana yang fokus pada kemudahan pengguna dan fungsi inti.',
+      reasoning: 'Rekomendasi umum untuk pemula.',
+    });
+  }
+});
+
+app.put('/api/projects/:id/interview', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  const answers = Array.isArray(req.body.answers) ? req.body.answers : [];
+  for (const ans of answers) {
+    if (!ans.questionId) continue;
+    await prisma.discoveryAnswer.deleteMany({ where: { questionId: ans.questionId } });
+    await prisma.discoveryAnswer.create({
+      data: { questionId: ans.questionId, answer: ans.answer || 'Dilewati' },
+    });
+  }
+
+  await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'techstack' } });
+  res.json({ ok: true });
+});
+
+// Tech stack
+app.post('/api/projects/:id/techstack/recommend', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  try {
+    const result = await recommendTechStack(project.id);
+    res.json(result);
+  } catch (err) {
+    res.status(502).json({ error: 'AI gagal merekomendasikan tech stack.', detail: (err as Error).message });
+  }
+});
+
+app.put('/api/projects/:id/techstack', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  await prisma.stack.deleteMany({ where: { projectId: project.id } });
+  const stacks = Array.isArray(req.body.techStack) ? req.body.techStack : [];
+  await Promise.all(
+    stacks.map((s: string) =>
+      prisma.stack.create({
+        data: {
+          projectId: project.id,
+          category: 'general',
+          name: typeof s === 'string' ? s.split(':')[0].trim() : 'Stack',
+          version: typeof s === 'string' && s.includes('v') ? s.split('v')[1]?.trim() : null,
+        },
+      })
+    )
+  );
+
+  await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'brd' } });
+  res.json({ ok: true });
+});
+
+app.post('/api/projects/:id/tree/generate', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: { brd: true },
+  });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+  if (!project.brd) return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
+
+  try {
+    const nodes = await generateTreeFromBrd(project.id);
+    await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'board' } });
+    res.json({ ok: true, count: nodes.length });
+  } catch (err) {
+    res.status(502).json({ error: 'AI gagal menghasilkan struktur tree.', detail: (err as Error).message });
+  }
+});
+
+app.get('/api/projects/:id/tree', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  const nodes = await prisma.treeNode.findMany({
+    where: { projectId: project.id },
+    orderBy: { order: 'asc' },
+  });
+  res.json({ nodes });
 });
 
 // ============================================================

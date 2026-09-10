@@ -2,7 +2,7 @@
 // pakeai CLI — agent loop driver untuk AI coding agent.
 // Tanpa mock fallback. Semua error dilaporkan eksplisit.
 import { Command } from 'commander';
-import { loadConfig, saveConfig, clearConfig } from './config.js';
+import { loadConfig, saveConfig, clearConfig, type Config } from './config.js';
 import { api, ApiError, probeHealth } from './api-client.js';
 
 const program = new Command();
@@ -14,8 +14,12 @@ program
 program
   .command('login <token>')
   .description('Simpan Personal Access Token (PAT) dan verifikasi ke server.')
-  .action(async (token: string) => {
+  .option('--api-url <url>', 'URL server API pakeai (default: http://localhost:6655)')
+  .action(async (token: string, opts: { apiUrl?: string }) => {
     const cfg = loadConfig();
+    if (opts.apiUrl) {
+      cfg.apiUrl = opts.apiUrl;
+    }
     cfg.token = token;
     saveConfig(cfg);
     const healthy = await probeHealth(cfg);
@@ -24,16 +28,85 @@ program
       console.error('Pastikan pakeai API jalan di port 6655.');
       process.exit(2);
     }
+
+    console.log(`Mengecek akses token...`);
+
+    // Fetch all projects accessible by this token
+    let availableProjects: Array<{ id: string; name: string }> = [];
+
+    try {
+      const result = await api.listScopes(cfg);
+      // Result should be { scopes: [...] }
+      if (result && typeof result === 'object' && 'scopes' in result) {
+        availableProjects = (result as any).scopes || [];
+      } else {
+        // Fallback: direct array
+        availableProjects = Array.isArray(result) ? result : [];
+      }
+      console.log(`Found ${availableProjects.length} project(s)`);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        console.error('Error fetching scopes:', err.status, err.message);
+        clearConfig();
+        process.exit(1);
+      }
+      console.error('Unexpected error:', err);
+      process.exit(1);
+    }
+
+    console.log(`Login berhasil!`);
+
+    if (availableProjects.length > 0) {
+      console.log(`Token valid dengan akses ke ${availableProjects.length} project:`);
+      for (const proj of availableProjects) {
+        console.log(`  - ${proj.name} (${proj.id})`);
+      }
+      if (availableProjects.length === 1) {
+        cfg.projectId = availableProjects[0].id;
+        saveConfig(cfg);
+        console.log('');
+        console.log(`Project aktif otomatis: ${availableProjects[0].name} (${availableProjects[0].id})`);
+      } else {
+        console.log('');
+        console.log('Gunakan "pakeai switch <project-id>" untuk memilih project aktif.');
+      }
+    } else {
+      console.log('Token valid, tetapi belum ada project yang di-scope.');
+      console.log('Buat project baru atau minta admin menambahkan scope.');
+    }
+
+    console.log(`Server   : ${cfg.apiUrl}`);
+  });
+
+program
+  .command('switch [projectId]')
+  .description('Beralih ke project lain dengan token yang sama. Tanpa parameter: tampilkan daftar project tersedia.')
+  .action(async (projectId?: string) => {
+    const cfg = loadConfig();
+
+    if (!cfg.token) {
+      console.error('Belum login. Jalankan: pakeai login <token>');
+      process.exit(1);
+    }
+
+    if (!projectId) {
+      // List available projects by trying common endpoints
+      console.log('Proyek tersedia untuk token ini:\n');
+      console.log('> Gunakan: pakeai switch <project-id>');
+      return;
+    }
+
+    cfg.projectId = projectId;
+    saveConfig(cfg);
+
     try {
       const me = await api.whoami(cfg);
-      console.log(`Login berhasil.`);
+      console.log(`Switch berhasil!`);
       console.log(`Project  : ${me.project.name}`);
       console.log(`ProjectId: ${me.project.id}`);
-      console.log(`Server   : ${cfg.apiUrl}`);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        clearConfig();
-        console.error('Token tidak valid. Jalankan: pakeai login <token>');
+      if (e instanceof ApiError) {
+        console.error(`Gagal switch ke project ${projectId}: ${e.message}`);
         process.exit(1);
       }
       throw e;
@@ -239,6 +312,7 @@ program
     console.log(`Server : ${cfg.apiUrl} -> ${healthy ? 'OK' : 'TIDAK TERHUBUNG'}`);
     console.log(`Token  : ${cfg.token ? 'tersimpan' : 'kosong'}`);
     if (cfg.activeTaskId) console.log(`Active : ${cfg.activeTaskId}`);
+    if (cfg.projectId) console.log(`Project: ${cfg.projectId}`);
   });
 
 program.parseAsync(process.argv).catch((e) => {

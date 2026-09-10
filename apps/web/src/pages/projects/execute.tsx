@@ -1,17 +1,21 @@
 // Halaman Execute: salin Master Prompt, panduan CLI.
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { AppShell } from '@/components/layout/app-shell';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Copy, Check, Terminal } from 'lucide-react';
+import { Copy, Check, Terminal, Key } from 'lucide-react';
 
 export function ExecutePage() {
   const { projectId = '' } = useParams();
-  const [token, setToken] = useState('');
+  const navigate = useNavigate();
+  const [token] = useState(() => {
+    return localStorage.getItem(`pakeai_pat_${projectId}`) || '';
+  });
   const [copied, setCopied] = useState(false);
 
   const q = useQuery({
@@ -35,24 +39,53 @@ export function ExecutePage() {
           <Card>
             <CardHeader>
               <CardTitle>Master Prompt</CardTitle>
-              <CardDescription>Tempel token CLI Anda (dibuat di Settings), lalu salin prompt ini ke AI agent pilihan Anda.</CardDescription>
+              <CardDescription>Token CLI otomatis terpasang (read-only). Salin prompt ini ke AI agent pilihan Anda.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div>
-                <label className="text-sm font-medium">Token CLI (PAT)</label>
-                <input
-                  className="mt-1 w-full h-10 rounded-md border bg-background px-3 text-sm font-mono"
-                  placeholder="pak_..."
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Token tidak pernah dikirim ke server. Hanya replace placeholder di prompt.
-                </p>
-              </div>
+              {token ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium">Token CLI (PAT)</label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={() => navigate(`/projects/${projectId}/settings?from=ready`)}
+                    >
+                      Ganti / Generate Token Baru
+                    </Button>
+                  </div>
+                  <Input
+                    value={token}
+                    readOnly
+                    className="font-mono bg-muted text-muted-foreground cursor-not-allowed"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Token CLI aktif (read-only). Otomatis terpasang ke Master Prompt di bawah.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Token CLI (PAT)</label>
+                  <div className="border border-dashed border-amber-300 bg-amber-50 rounded-md p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-amber-900">Belum ada token CLI</p>
+                      <p className="text-xs text-amber-700">
+                        Buat token CLI baru untuk project ini agar AI agent bisa mengakses task.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => navigate(`/projects/${projectId}/settings?from=ready`)}
+                      className="shrink-0"
+                    >
+                      <Key className="h-4 w-4 mr-2" /> Generate Key
+                    </Button>
+                  </div>
+                </div>
+              )}
               <Textarea rows={20} readOnly value={finalPrompt ?? 'Memuat...'} className="text-xs" />
-              <Button onClick={copy} disabled={!finalPrompt}>
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              <Button onClick={copy} disabled={!finalPrompt || !token}>
+                {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
                 {copied ? 'Tersalin' : 'Salin Prompt'}
               </Button>
             </CardContent>

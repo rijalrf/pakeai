@@ -32,6 +32,16 @@ async function main() {
     },
   });
 
+  // Password demo: password123 (format Better Auth salt:hash)
+  await prisma.account.create({
+    data: {
+      userId: user.id,
+      accountId: user.id,
+      providerId: 'credential',
+      password: 'f0aa9b0cff3746cb99e7522e49c1618e:7ee8d18a2b65dacc161973e38a3a415dc4423d256d5e7b4daef9d4f82849be4d4ab2e628fc007275a45e10b5df8e44b17a2d2c066cd0fc6c937f102d6d353077',
+    },
+  });
+
   const project = await prisma.project.create({
     data: {
       userId: user.id,
@@ -157,15 +167,17 @@ async function main() {
     ],
   });
 
-  // Token demo untuk pengujian CLI.
+  // Token demo untuk pengujian CLI — Universal PAT dengan multi-project scope.
   const demoToken = 'pak_demo_seed_token_replace_in_app';
   const tokenHash = crypto.createHash('sha256').update(demoToken).digest('hex');
   await prisma.agentToken.create({
     data: {
       userId: user.id,
-      projectId: project.id,
       name: 'Token Demo (seed)',
       tokenHash,
+      agentTokenScopes: {
+        create: { projectId: project.id }
+      }
     },
   });
 

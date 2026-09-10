@@ -1,20 +1,27 @@
 // Verifikasi session user (cookie Better Auth) untuk endpoint user.
 import type { Request, Response, NextFunction } from 'express';
+import { fromNodeHeaders } from 'better-auth/node';
 import { auth } from '../lib/auth.js';
 
-export interface AuthedRequest extends Request {
-  userId: string;
-  userEmail?: string;
+declare global {
+  namespace Express {
+    interface Request {
+      userId: string;
+      userEmail?: string;
+    }
+  }
 }
+
+export type AuthedRequest = Request;
 
 export async function requireUser(req: Request, res: Response, next: NextFunction) {
   try {
-    const session = await auth.api.getSession({ headers: req.headers });
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
     if (!session?.user) {
       return res.status(401).json({ error: 'Tidak terautentikasi. Silakan login.' });
     }
-    (req as AuthedRequest).userId = session.user.id;
-    (req as AuthedRequest).userEmail = session.user.email;
+    req.userId = session.user.id;
+    req.userEmail = session.user.email;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Session tidak valid.' });

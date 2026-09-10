@@ -6,5 +6,5 @@
     "moduleResolution": "Node",
     "module": "ESNext"
   },
-  "include": ["src/**/*", "prisma/seed.ts"]
+  "include": ["src/**/*"]
 }

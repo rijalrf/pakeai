@@ -40,7 +40,7 @@ export function TasksPage() {
   const checkpointsQ = useQuery({
     queryKey: ['checkpoints', projectId],
     queryFn: () => api<{ checkpoints: Checkpoint[] }>(`/api/projects/${projectId}/checkpoints`),
-    enabled: !!projectId && q.data?.tasks.length > 0,
+    enabled: !!projectId && (q.data?.tasks?.length ?? 0) > 0,
   });
 
   const genMut = useMutation({
@@ -114,7 +114,7 @@ export function TasksPage() {
             <CardHeader className="py-3">
               <CardTitle className="text-sm font-semibold flex items-center justify-between">
                 <span>{col.label}</span>
-                <Badge variant="outline">{byCol[col.key].length}</Badge>
+                <Badge className="border">{byCol[col.key].length}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
