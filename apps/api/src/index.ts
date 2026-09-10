@@ -944,7 +944,7 @@ app.post('/api/projects/:id/brd/generate', requireUser, async (req: AuthedReques
     return res.status(400).json({ error: 'Jawab minimal 1 pertanyaan discovery dulu.' });
   }
   try {
-    const brd = await generateBRDFromDiscovery({ idea: project.idea, questions: qa });
+    const brd = await generateBRDFromDiscovery({ idea: project.idea, questions: qa, projectId: project.id });
     const existing = await prisma.brd.findUnique({ where: { projectId: project.id } });
     if (existing) {
       const updated = await prisma.brd.update({
@@ -978,7 +978,7 @@ app.post('/api/projects/:id/roadmap/generate', requireUser, async (req: AuthedRe
   if (!project?.brd) return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
   try {
     const parsed = BrdSchema.parse(project.brd.content);
-    const data = await generateRoadmapFromBRD(parsed);
+    const data = await generateRoadmapFromBRD(parsed, { projectId: project.id });
 
     // Hapus roadmap lama (cascade akan hapus features + deps).
     await prisma.roadmapPhase.deleteMany({ where: { projectId: project.id } });
@@ -1047,7 +1047,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
     if (!project.brd) return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
     try {
       const parsedBrd = BrdSchema.parse(project.brd.content);
-      const roadmapData = await generateRoadmapFromBRD(parsedBrd);
+      const roadmapData = await generateRoadmapFromBRD(parsedBrd, { projectId: project.id });
       await prisma.roadmapPhase.deleteMany({ where: { projectId: project.id } });
 
       const phaseMap = new Map<string, string>();
@@ -1128,6 +1128,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
       roadmap: { phases: phasesForAI },
       projectName: project.name,
       brd: brdData,
+      projectId: project.id,
     });
 
     // Hapus tasks lama, tulis ulang.
@@ -1277,6 +1278,105 @@ app.post('/api/checkpoints/:id/approve', requireUser, async (req: AuthedRequest,
     data: { status: 'APPROVED', resolvedAt: new Date() },
   });
   res.json({ ok: true, checkpoint: updated });
+});
+
+// ============================================================
+// Observability — Metrik AI (Token & Latensi) (Bab 39)
+// ============================================================
+
+app.get('/api/projects/:id/ai-metrics', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+  });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  const logs = await prisma.aiCallLog.findMany({
+    where: { projectId: project.id },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+
+  const totalCalls = logs.length;
+  const totalTokens = logs.reduce((sum, l) => sum + l.totalTokens, 0);
+  const inputTokens = logs.reduce((sum, l) => sum + l.inputTokens, 0);
+  const outputTokens = logs.reduce((sum, l) => sum + l.outputTokens, 0);
+  const avgLatencyMs = totalCalls > 0 ? Math.round(logs.reduce((sum, l) => sum + l.latencyMs, 0) / totalCalls) : 0;
+  const successCount = logs.filter((l) => l.success).length;
+  const successRate = totalCalls > 0 ? Math.round((successCount / totalCalls) * 100) : 100;
+
+  // Breakdown per agent
+  const agentMap = new Map<string, { calls: number; tokens: number; totalLatency: number; success: number }>();
+  for (const l of logs) {
+    const existing = agentMap.get(l.agentName) ?? { calls: 0, tokens: 0, totalLatency: 0, success: 0 };
+    existing.calls += 1;
+    existing.tokens += l.totalTokens;
+    existing.totalLatency += l.latencyMs;
+    if (l.success) existing.success += 1;
+    agentMap.set(l.agentName, existing);
+  }
+
+  const byAgent = Array.from(agentMap.entries()).map(([agentName, data]) => ({
+    agentName,
+    calls: data.calls,
+    tokens: data.tokens,
+    avgLatencyMs: Math.round(data.totalLatency / data.calls),
+    successRate: Math.round((data.success / data.calls) * 100),
+  }));
+
+  res.json({
+    ok: true,
+    summary: {
+      totalCalls,
+      totalTokens,
+      inputTokens,
+      outputTokens,
+      avgLatencyMs,
+      successRate,
+    },
+    byAgent,
+    recentLogs: logs.slice(0, 20),
+  });
+});
+
+app.get('/api/ai-metrics', requireUser, async (req: AuthedRequest, res) => {
+  // Ambil semua project milik user
+  const userProjects = await prisma.project.findMany({
+    where: { userId: req.userId },
+    select: { id: true },
+  });
+  const projectIds = userProjects.map((p) => p.id);
+
+  const logs = await prisma.aiCallLog.findMany({
+    where: {
+      OR: [
+        { projectId: { in: projectIds } },
+        { projectId: null }, // log global
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+
+  const totalCalls = logs.length;
+  const totalTokens = logs.reduce((sum, l) => sum + l.totalTokens, 0);
+  const inputTokens = logs.reduce((sum, l) => sum + l.inputTokens, 0);
+  const outputTokens = logs.reduce((sum, l) => sum + l.outputTokens, 0);
+  const avgLatencyMs = totalCalls > 0 ? Math.round(logs.reduce((sum, l) => sum + l.latencyMs, 0) / totalCalls) : 0;
+  const successCount = logs.filter((l) => l.success).length;
+  const successRate = totalCalls > 0 ? Math.round((successCount / totalCalls) * 100) : 100;
+
+  res.json({
+    ok: true,
+    summary: {
+      totalCalls,
+      totalTokens,
+      inputTokens,
+      outputTokens,
+      avgLatencyMs,
+      successRate,
+    },
+    recentLogs: logs.slice(0, 20),
+  });
 });
 
 // ============================================================

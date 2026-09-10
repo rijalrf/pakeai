@@ -31,6 +31,7 @@ export type BrdData = z.infer<typeof BrdSchema>;
 export async function generateBRDFromDiscovery(args: {
   idea: string;
   questions: { question: string; answer: string }[];
+  projectId?: string;
 }): Promise<BrdData> {
   const qaText = args.questions
     .map((q, i) => `${i + 1}. ${q.question}\n   Jawaban: ${q.answer}`)
@@ -71,5 +72,5 @@ Schema JSON yang WAJIB diikuti:
 
 Pastikan ID requirement berurutan (FR-001, FR-002...) dan aturan bisnis (BR-001, BR-002...). Kembalikan HANYA JSON valid.`;
 
-  return generateJson({ system, user, schema: BrdSchema });
+  return generateJson({ system, user, schema: BrdSchema, agentName: 'CanonicalBrdSpec', projectId: args.projectId });
 }

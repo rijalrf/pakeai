@@ -40,6 +40,7 @@ export async function generateTasksFromRoadmap(args: {
     functionalRequirements?: Array<{ id: string; title: string; description: string; priority?: string }>;
     businessRules?: Array<{ id: string; description: string }>;
   };
+  projectId?: string;
 }): Promise<TaskGen[]> {
   const system = `Anda adalah Principal AI Task Architect. Tugas Anda adalah memecah fitur aplikasi menjadi atomic tasks terstruktur yang dirancang agar DAPAT DIEKSEKUSI DENGAN SUKSES OLEH LOW-COST AI CODING AGENT ATAU JUNIOR DEVELOPER.
 
@@ -136,6 +137,12 @@ Wajib pada layer INTEGRATION include minimal 2-3 task khusus ini:
 
 Minimal 1 task per fitur. Urutkan order global. Pastikan semua task acceptance criteria testable sebelum submit. Kembalikan HANYA JSON.`;
 
-  const out = await generateJson({ system, user, schema: TasksSchema });
+  const out = await generateJson({
+    system,
+    user,
+    schema: TasksSchema,
+    agentName: 'AtomicTaskArchitect',
+    projectId: args.projectId,
+  });
   return out.tasks;
 }
