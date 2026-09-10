@@ -8,15 +8,23 @@ const TasksSchema = z.object({
   tasks: z
     .array(
       z.object({
+        taskId: z.string().optional(),
         title: z.string(),
         description: z.string().optional(),
         layer: z.enum(['DATABASE', 'BACKEND', 'FRONTEND', 'INTEGRATION']),
         featureId: z.string(),
         order: z.number().int().min(1),
+        requirement_ids: z.array(z.string()).default([]),
+        depends_on: z.array(z.string()).default([]),
         files_to_create: z.array(z.string()).default([]),
         files_to_modify: z.array(z.string()).default([]),
+        files_readonly: z.array(z.string()).default([]),
         forbidden: z.array(z.string()).default([]),
+        implementation_steps: z.array(z.string()).default([]),
         acceptanceCriteria: z.array(z.string()).min(1),
+        validation_commands: z.array(z.string()).default(['npm run build']),
+        definition_of_done: z.array(z.string()).default([]),
+        out_of_scope: z.array(z.string()).default([]),
       }),
     )
     .min(3),
@@ -28,11 +36,33 @@ export async function generateTasksFromRoadmap(args: {
   roadmap: RoadmapData;
   projectName: string;
   appRoot?: string; // mis. "apps/api", "apps/web"
+  brd?: {
+    functionalRequirements?: Array<{ id: string; title: string; description: string; priority?: string }>;
+    businessRules?: Array<{ id: string; description: string }>;
+  };
 }): Promise<TaskGen[]> {
-  const system = `Anda adalah AI yang memecah fitur menjadi atomic tasks untuk AI coding agent. Setiap task HARUS punya bounded context: file yang boleh dibuat, file yang boleh dimodifikasi, dan file yang DILARANG disentuh (di luar layer tsb).`;
+  const system = `Anda adalah Principal AI Task Architect. Tugas Anda adalah memecah fitur aplikasi menjadi atomic tasks terstruktur yang dirancang agar DAPAT DIEKSEKUSI DENGAN SUKSES OLEH LOW-COST AI CODING AGENT ATAU JUNIOR DEVELOPER.
+
+PRINSIP ATOMIC & LOW-COST COMPATIBILITY:
+1. Satu task fokus pada 1 tanggung jawab spesifik (Single Responsibility Principle).
+2. Setiap task wajib memiliki Bounded Context ketat: file yang boleh dibuat, file yang boleh dimodifikasi, dan file yang DILARANG disentuh.
+3. Berikan 'implementation_steps' yang konkret (langkah 1, 2, 3 langkah demi langkah) agar model tidak berhalusinasi.
+4. Kaitkan setiap task dengan ID kebutuhan ('requirement_ids', misal FR-001, BR-001).
+5. Berikan 'validation_commands' otomatis (misal: "npm test", "npm run typecheck") yang bisa dijalankan coding agent untuk membuktikan keberhasilan task.
+6. Pisahkan 'acceptanceCriteria' (kondisi lulus fitur) dari 'definition_of_done' (kondisi siap ditutup) dan 'out_of_scope' (hal yang dilarang dilakukan di task ini).`;
+
+  const reqText = args.brd?.functionalRequirements?.length
+    ? `\nKEBUTUHAN FUNGSIONAL TERSEDIA:\n${args.brd.functionalRequirements.map((r) => `- [${r.id}] ${r.title}: ${r.description}`).join('\n')}`
+    : '';
+
+  const rulesText = args.brd?.businessRules?.length
+    ? `\nATURAN BISNIS TERSEDIA:\n${args.brd.businessRules.map((b) => `- [${b.id}] ${b.description}`).join('\n')}`
+    : '';
 
   const user = `ROADMAP:
 ${JSON.stringify(args.roadmap, null, 2)}
+${reqText}
+${rulesText}
 
 NAMA PROJECT: ${args.projectName}
 
@@ -40,15 +70,39 @@ Schema JSON (WAJIB):
 {
   "tasks": [
     {
-      "title": string,
-      "description"?: string,
+      "taskId": "TASK-001",
+      "title": "Judul task singkat & instruktif",
+      "description": "Deskripsi lingkup teknis task",
       "layer": "DATABASE" | "BACKEND" | "FRONTEND" | "INTEGRATION",
       "featureId": string (id fitur asal),
       "order": number,
-      "files_to_create": string[],
-      "files_to_modify": string[],
-      "forbidden": string[],
-      "acceptanceCriteria": string[] (2-5 item, HARUS dapat diverifikasi via test/browser/manual check)
+      "requirement_ids": ["FR-001", "BR-001"],
+      "depends_on": ["ID task atau fitur sebelumnya yang menjadi prasyarat"],
+      "files_to_create": ["path/file.ts"],
+      "files_to_modify": ["path/existing.ts"],
+      "files_readonly": ["path/schema.prisma"],
+      "forbidden": ["apps/web/**"],
+      "implementation_steps": [
+        "1. Buat model data di schema",
+        "2. Jalankan migrasi",
+        "3. Verifikasi kueri"
+      ],
+      "acceptanceCriteria": [
+        "Kriteria penerimaan measurable dan testable"
+      ],
+      "validation_commands": [
+        "npm test",
+        "npm run typecheck"
+      ],
+      "definition_of_done": [
+        "Implementasi selesai",
+        "Typecheck lolos",
+        "Tidak ada file forbidden berubah"
+      ],
+      "out_of_scope": [
+        "Tidak menyentuh UI frontend",
+        "Tidak menambahkan authentication baru"
+      ]
     }
   ]
 }
@@ -61,9 +115,8 @@ Aturan bounded context:
 
 Aturan acceptance criteria (HARUS DIPATUHI):
 - Setiap acceptance criterion HARUS measurable dan testable, bukan subjektif.
-- ❌ SALAH: "Fitur login berhasil" (tidak jelas bagaimana verifikasinya)
+- ❌ SALAH: "Fitur login berhasil"
 - ✅ BENAR: "Akses http://localhost:9999/login dengan kredensial valid menampilkan halaman dashboard home, URL tetap http://localhost:9999/dashboard"
-- Harus mencakup cara verifikasi: browser check, API response check, database validation, dll.
 
 Wajib pada layer INTEGRATION include minimal 2-3 task khusus ini:
 1. Setup Testing Infrastructure - config jest/vitest + basic test setup scripts

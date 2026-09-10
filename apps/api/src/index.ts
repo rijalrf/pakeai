@@ -426,33 +426,108 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
   });
   if (!task) return res.status(404).json({ error: 'Task tidak ditemukan di project ini.' });
 
-  const ctx = task.aiContext as { files_to_create?: string[]; files_to_modify?: string[]; forbidden?: string[] };
-  const brd = task.project.brd?.content as Record<string, unknown> | undefined;
+  const ctx = (task.aiContext ?? {}) as {
+    taskId?: string;
+    requirement_ids?: string[];
+    depends_on?: string[];
+    files_to_create?: string[];
+    files_to_modify?: string[];
+    files_readonly?: string[];
+    forbidden?: string[];
+    implementation_steps?: string[];
+    validation_commands?: string[];
+    definition_of_done?: string[];
+    out_of_scope?: string[];
+  };
 
-  const md = [
+  const brd = task.project.brd?.content as {
+    functionalRequirements?: Array<{ id: string; title: string; description: string }>;
+    businessRules?: Array<{ id: string; description: string }>;
+  } | undefined;
+
+  // Filter requirement yang bersangkutan untuk hemat token dan cegah distorsi context
+  const reqIds = new Set(ctx.requirement_ids ?? []);
+  const relevantReqs = (brd?.functionalRequirements ?? []).filter((r) => reqIds.has(r.id));
+  const relevantRules = (brd?.businessRules ?? []).filter((b) => reqIds.has(b.id));
+
+  const mdParts: string[] = [
     `### [TASK ${task.order}] ${task.title}`,
     ``,
-    `**Layer**: ${task.layer}  `,
-    `**Project**: ${task.project.name}  `,
-    `**Status**: ${task.status}`,
-    ``,
-    `#### Deskripsi`,
-    task.description ?? '_(tidak ada deskripsi)_',
-    ``,
-    `#### Bounded Context`,
-    `- File yang BOLEH dibuat: ${(ctx.files_to_create ?? []).join(', ') || '_tidak ada_'}`,
-    `- File yang BOLEH dimodifikasi: ${(ctx.files_to_modify ?? []).join(', ') || '_tidak ada_'}`,
-    `- File yang DILARANG: ${(ctx.forbidden ?? []).join(', ') || '_tidak ada_'}`,
-    ``,
-    `#### Kriteria Penerimaan`,
-    ...(((task.acceptanceCriteria as string[]) ?? []).map((c) => `- [ ] ${c}`)),
-    ``,
-    brd
-      ? `#### Ringkasan BRD\n${JSON.stringify(brd, null, 2).slice(0, 2000)}`
-      : `#### Ringkasan BRD\n_(belum ada BRD — minta user membuatnya dulu)_`,
-  ].join('\n');
+    `**Layer**: ${task.layer} | **Project**: ${task.project.name} | **Status**: ${task.status}`,
+  ];
 
-  res.json({ ok: true, taskId: task.id, markdown: md });
+  if (ctx.depends_on && ctx.depends_on.length > 0) {
+    mdParts.push(`**Prasyarat (Depends On)**: ${ctx.depends_on.join(', ')}`);
+  }
+
+  mdParts.push(
+    ``,
+    `#### Lingkup Teknis`,
+    task.description ?? '_(tidak ada deskripsi)_',
+    ``
+  );
+
+  if (relevantReqs.length > 0 || relevantRules.length > 0) {
+    mdParts.push(`#### Kebutuhan & Aturan Terkait`);
+    for (const r of relevantReqs) {
+      mdParts.push(`- [${r.id}] **${r.title}**: ${r.description}`);
+    }
+    for (const b of relevantRules) {
+      mdParts.push(`- [${b.id}] ${b.description}`);
+    }
+    mdParts.push(``);
+  }
+
+  mdParts.push(
+    `#### Bounded Context (Isolasi File)`,
+    `- File yang WAJIB/BOLEH dibuat: ${(ctx.files_to_create ?? []).join(', ') || '_tidak ada_'}`,
+    `- File yang BOLEH dimodifikasi: ${(ctx.files_to_modify ?? []).join(', ') || '_tidak ada_'}`,
+    `- File READ-ONLY (referensi saja): ${(ctx.files_readonly ?? []).join(', ') || '_tidak ada_'}`,
+    `- File yang DILARANG KERAS disentuh: ${(ctx.forbidden ?? []).join(', ') || '_tidak ada_'}`,
+    ``
+  );
+
+  if (ctx.implementation_steps && ctx.implementation_steps.length > 0) {
+    mdParts.push(`#### Langkah Implementasi Konkret`);
+    ctx.implementation_steps.forEach((s, idx) => {
+      mdParts.push(`${idx + 1}. ${s.replace(/^\d+[\.\)]\s*/, '')}`);
+    });
+    mdParts.push(``);
+  }
+
+  mdParts.push(
+    `#### Kriteria Penerimaan (Acceptance Criteria)`,
+    ...(((task.acceptanceCriteria as string[]) ?? []).map((c) => `- [ ] ${c}`)),
+    ``
+  );
+
+  if (ctx.out_of_scope && ctx.out_of_scope.length > 0) {
+    mdParts.push(`#### Di Luar Lingkup (Out of Scope - JANGAN lakukan)`);
+    for (const o of ctx.out_of_scope) {
+      mdParts.push(`- ${o}`);
+    }
+    mdParts.push(``);
+  }
+
+  if (ctx.validation_commands && ctx.validation_commands.length > 0) {
+    mdParts.push(
+      `#### Perintah Verifikasi Mandiri (Jalankan sebelum pakeai done)`,
+      '```bash',
+      ...ctx.validation_commands,
+      '```',
+      ``
+    );
+  }
+
+  if (ctx.definition_of_done && ctx.definition_of_done.length > 0) {
+    mdParts.push(`#### Definition of Done`);
+    for (const d of ctx.definition_of_done) {
+      mdParts.push(`- [ ] ${d}`);
+    }
+    mdParts.push(``);
+  }
+
+  res.json({ ok: true, taskId: task.id, markdown: mdParts.join('\n') });
 });
 
 // ============================================================
@@ -969,9 +1044,15 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
   }));
 
   try {
+    const brdData = project.brd?.content as {
+      functionalRequirements?: Array<{ id: string; title: string; description: string; priority?: string }>;
+      businessRules?: Array<{ id: string; description: string }>;
+    } | undefined;
+
     const generated = await generateTasksFromRoadmap({
       roadmap: { phases: phasesForAI },
       projectName: project.name,
+      brd: brdData,
     });
 
     // Hapus tasks lama, tulis ulang.
@@ -997,9 +1078,17 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
           status: 'TODO',
           order: order++,
           aiContext: {
+            taskId: t.taskId,
+            requirement_ids: t.requirement_ids,
+            depends_on: t.depends_on,
             files_to_create: t.files_to_create,
             files_to_modify: t.files_to_modify,
+            files_readonly: t.files_readonly,
             forbidden: t.forbidden,
+            implementation_steps: t.implementation_steps,
+            validation_commands: t.validation_commands,
+            definition_of_done: t.definition_of_done,
+            out_of_scope: t.out_of_scope,
           },
           acceptanceCriteria: t.acceptanceCriteria,
         },
