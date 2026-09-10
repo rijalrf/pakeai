@@ -1,6 +1,6 @@
 // Settings: generate & revoke PAT.
 import { useState } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { AppShell } from '@/components/layout/app-shell';
@@ -14,8 +14,6 @@ type Token = { id: string; name: string; lastUsedAt: string | null; isRevoked: b
 export function SettingsPage() {
   const { projectId = '' } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const from = searchParams.get('from');
   const qc = useQueryClient();
   const [name, setName] = useState('Token CLI');
   const [newToken, setNewToken] = useState<string | null>(() => {
@@ -54,7 +52,7 @@ export function SettingsPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  const backUrl = from === 'ready' ? `/projects/${projectId}/ready` : '/dashboard';
+  const backUrl = `/projects/${projectId}/board`;
 
   return (
     <AppShell back={backUrl} title="Settings">
@@ -62,9 +60,9 @@ export function SettingsPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => navigate(`/projects/${projectId}/ready`)}
+          onClick={() => navigate(`/projects/${projectId}/board`)}
         >
-          <ArrowLeft className="h-4 w-4 mr-2" /> Kembali ke Eksekusi
+          <ArrowLeft className="h-4 w-4 mr-2" /> Kembali ke Board
         </Button>
       </div>
 
@@ -90,9 +88,9 @@ export function SettingsPage() {
                 </div>
                 <Button
                   className="w-full"
-                  onClick={() => navigate(`/projects/${projectId}/ready`)}
+                  onClick={() => navigate(`/projects/${projectId}/board`)}
                 >
-                  <ArrowLeft className="h-4 w-4 mr-2" /> Kembali ke Eksekusi
+                  <ArrowLeft className="h-4 w-4 mr-2" /> Kembali ke Board
                 </Button>
               </div>
             )}
