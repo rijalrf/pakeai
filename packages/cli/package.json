@@ -1,6 +1,6 @@
 {
   "name": "pakeai",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "CLI agent loop untuk AI coding agent - autonomous task execution via bounded context isolation",
   "keywords": [
     "cli",

@@ -25,6 +25,8 @@ import { generateDiscoveryQuestions, DEFAULT_DISCOVERY_QUESTIONS } from './lib/a
 import { generateBRDFromDiscovery, BrdSchema } from './lib/ai/brd.js';
 import { generateRoadmapFromBRD } from './lib/ai/roadmap.js';
 import { generateTasksFromRoadmap } from './lib/ai/tasks.js';
+import { generateUiSpec, UiSpecSchema } from './lib/ai/ui-spec.js';
+import { validateAndNormalizeDAG } from './lib/ai/dag-validator.js';
 import { replyChat, finalizeChatSession, generateInterviewFromChat, recommendInterviewAnswer, recommendTechStack, generateTreeFromBrd } from './lib/ai/chat.js';
 
 // Hash token utility (mirrors requireAgent.middleware)
@@ -471,6 +473,49 @@ app.post('/api/agent/tasks/:id/complete', requireAgent, async (req: AgentRequest
   });
 });
 
+// Catat kegagalan task dengan Structured Failure Context (Bab 38)
+app.post('/api/agent/tasks/:id/fail', requireAgent, async (req: AgentRequest, res) => {
+  const task = await prisma.task.findFirst({
+    where: { id: req.params.id, projectId: req.agent.projectId },
+  });
+  if (!task) return res.status(404).json({ error: 'Task tidak ditemukan di project ini.' });
+
+  const body = req.body ?? {};
+  const failureType = body.failure_type ?? 'COMMAND_FAILURE';
+  const errorMsg = String(body.error ?? 'Unknown error').slice(0, 1000);
+  const nextAction = body.next_action ?? 'Periksa error dan ulangi eksekusi task.';
+  const affectedFiles = Array.isArray(body.affected_files) ? body.affected_files : [];
+
+  const existingCtx = (task.aiContext ?? {}) as Record<string, any>;
+  const updatedCtx = {
+    ...existingCtx,
+    lastFailure: {
+      failure_type: failureType,
+      command: body.command,
+      error: errorMsg,
+      affected_files: affectedFiles,
+      next_action: nextAction,
+      failedAt: new Date().toISOString(),
+    },
+  };
+
+  const updated = await prisma.task.update({
+    where: { id: task.id },
+    data: {
+      status: 'BLOCKED',
+      blockedReason: `[${failureType}] ${errorMsg}`.slice(0, 500),
+      aiContext: updatedCtx,
+    },
+  });
+
+  res.json({
+    ok: true,
+    taskId: updated.id,
+    status: updated.status,
+    blockedReason: updated.blockedReason,
+  });
+});
+
 app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, res) => {
   const task = await prisma.task.findFirst({
     where: { id: req.params.id, projectId: req.agent.projectId },
@@ -540,6 +585,55 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
       mdParts.push(`- [${b.id}] ${b.description}`);
     }
     mdParts.push(``);
+  }
+
+  // Context Budgeting: Ekstrak spesifikasi UI yang relevan saja untuk layer FRONTEND (Bab 14, 26, 27)
+  if (task.layer === 'FRONTEND' && task.project.uiSpec) {
+    const ui = task.project.uiSpec as {
+      pages?: Array<{
+        name: string;
+        path?: string;
+        purpose?: string;
+        layout?: { mobile: string; desktop: string };
+        components?: string[];
+        states?: string[];
+      }>;
+      designTokens?: { spacing?: string; borderRadius?: string; colorPalette?: string[]; typography?: string };
+    };
+
+    const taskText = `${task.title} ${task.description ?? ''} ${(ctx.files_to_create ?? []).join(' ')} ${(ctx.files_to_modify ?? []).join(' ')}`.toLowerCase();
+    const matchingPages = (ui.pages ?? []).filter((p) =>
+      taskText.includes(p.name.toLowerCase()) || (p.path && taskText.includes(p.path.toLowerCase()))
+    );
+
+    const pagesToRender = matchingPages.length > 0 ? matchingPages : (ui.pages ?? []).slice(0, 2);
+    if (pagesToRender.length > 0) {
+      mdParts.push(`#### Spesifikasi Halaman UI Relevan`);
+      for (const p of pagesToRender) {
+        mdParts.push(`- **Halaman**: ${p.name}${p.path ? ` (\`${p.path}\`)` : ''} — ${p.purpose ?? ''}`);
+        if (p.layout) mdParts.push(`  - Layout: Mobile: ${p.layout.mobile} | Desktop: ${p.layout.desktop}`);
+        if (p.components?.length) mdParts.push(`  - Komponen: ${p.components.join(', ')}`);
+        if (p.states?.length) mdParts.push(`  - State Wajib: ${p.states.join(', ')}`);
+      }
+      if (ui.designTokens) {
+        mdParts.push(`- **Design Tokens**: Spacing: ${ui.designTokens.spacing || '4px'}, Radius: ${ui.designTokens.borderRadius || 'rounded-md'}`);
+      }
+      mdParts.push(``);
+    }
+  }
+
+  // Failure Context jika task pernah gagal sebelumnya (Bab 38)
+  const lastFailure = (ctx as any).lastFailure;
+  if (lastFailure) {
+    mdParts.push(
+      `#### ⚠️ Catatan Kegagalan Sebelumnya`,
+      `- Jenis Kegagalan: ${lastFailure.failure_type}`,
+      lastFailure.command ? `- Perintah: \`${lastFailure.command}\`` : '',
+      `- Detail Error: ${lastFailure.error}`,
+      lastFailure.affected_files?.length ? `- File Terdampak: ${lastFailure.affected_files.join(', ')}` : '',
+      `- Rekomendasi Solusi: **${lastFailure.next_action}**`,
+      ``
+    );
   }
 
   mdParts.push(
@@ -1031,6 +1125,41 @@ app.get('/api/projects/:id/roadmap', requireUser, async (req: AuthedRequest, res
   res.json({ phases: project.roadmap });
 });
 
+// UX/UI Specification Agent (Bab 14)
+app.get('/api/projects/:id/ui-spec', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    select: { id: true, name: true, uiSpec: true },
+  });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+  res.json({ uiSpec: project.uiSpec });
+});
+
+app.post('/api/projects/:id/ui-spec/generate', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: { brd: true },
+  });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+  if (!project.brd) return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
+
+  try {
+    const parsedBrd = BrdSchema.parse(project.brd.content);
+    const spec = await generateUiSpec({
+      brd: parsedBrd,
+      projectName: project.name,
+      projectId: project.id,
+    });
+    const updated = await prisma.project.update({
+      where: { id: project.id },
+      data: { uiSpec: spec as any },
+    });
+    res.json({ ok: true, uiSpec: updated.uiSpec });
+  } catch (err) {
+    res.status(502).json({ error: 'AI gagal menghasilkan UI Spec.', detail: (err as Error).message });
+  }
+});
+
 // Step 4: generate atomic tasks dari roadmap (auto generate roadmap jika belum ada).
 app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequest, res) => {
   let project = await prisma.project.findFirst({
@@ -1124,12 +1253,38 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
       businessRules?: Array<{ id: string; description: string }>;
     } | undefined;
 
+    // Dedicated UX/UI Specification Agent (Bab 14)
+    let uiSpecData = project.uiSpec as any;
+    if (!uiSpecData && project.brd) {
+      try {
+        const parsedBrd = BrdSchema.parse(project.brd.content);
+        uiSpecData = await generateUiSpec({
+          brd: parsedBrd,
+          projectName: project.name,
+          projectId: project.id,
+        });
+        await prisma.project.update({
+          where: { id: project.id },
+          data: { uiSpec: uiSpecData },
+        });
+      } catch (err) {
+        console.warn('[ui-spec-warn] Gagal auto-generate UI Spec, lanjutkan tanpa UI spec:', (err as Error).message);
+      }
+    }
+
     const generated = await generateTasksFromRoadmap({
       roadmap: { phases: phasesForAI },
       projectName: project.name,
       brd: brdData,
+      uiSpec: uiSpecData,
       projectId: project.id,
     });
+
+    // Validasi DAG Deterministik (Bab 35 & 36): deteksi siklus, buang self-dep, dan urutkan topologis
+    const { tasks: validTasks, warnings, healed } = validateAndNormalizeDAG(generated);
+    if (warnings.length > 0) {
+      console.log(`[DAG-VALIDATOR] Memproses ${validTasks.length} tasks (healed=${healed}):\n${warnings.map((w) => '  - ' + w).join('\n')}`);
+    }
 
     // Hapus tasks lama, tulis ulang.
     await prisma.task.deleteMany({ where: { projectId: project.id } });
@@ -1143,7 +1298,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
       dependsOn: string[];
     }> = [];
 
-    for (const t of generated) {
+    for (const t of validTasks) {
       // Cari db feature yang punya tmpId = t.featureId
       let dbFeatureId: string | undefined;
       for (const [dbId, tmpId] of featureIdMap.entries()) {

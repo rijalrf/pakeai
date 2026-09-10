@@ -1,4 +1,4 @@
-// Runtime scope guard (Fase 2).
+// Runtime scope guard (Fase 2 & Bab 38).
 // Validasi eksekusi task secara lokal di mesin user (git diff vs forbidden + validation commands)
 // sebelum pakeai done mengirim status ke API. Server tidak bisa akses filesystem laptop user,
 // jadi guard ini wajib berjalan di CLI.
@@ -11,10 +11,24 @@ export type GuardSpec = {
   validation_commands?: string[];
 };
 
+export type FailureType = 'FORBIDDEN_FILES' | 'TEST_FAILURE' | 'COMMAND_FAILURE' | 'RUNTIME_ERROR';
+
+export type FailureContext = {
+  task_id: string;
+  status: 'FAILED';
+  failure_type: FailureType;
+  command?: string;
+  error: string;
+  affected_files: string[];
+  next_action: string;
+};
+
 export class GuardError extends Error {
-  constructor(message: string) {
+  failureContext?: FailureContext;
+  constructor(message: string, failureContext?: FailureContext) {
     super(message);
     this.name = 'GuardError';
+    this.failureContext = failureContext;
   }
 }
 
@@ -117,7 +131,7 @@ export function runValidationCommands(commands: string[], cwd: string): Promise<
 }
 
 // === Orchestrasi guard utama ===
-export async function runGuard(spec: GuardSpec, cwd: string): Promise<void> {
+export async function runGuard(spec: GuardSpec, cwd: string, taskId?: string): Promise<void> {
   const forbidden = spec.forbidden ?? [];
 
   const changed = await gitStatusPorcelain(cwd);
@@ -131,8 +145,17 @@ export async function runGuard(spec: GuardSpec, cwd: string): Promise<void> {
   }
   if (violations.length > 0) {
     const list = violations.map((v) => `- ${v.file}  (larangan: ${v.pattern})`).join('\n');
+    const failure: FailureContext = {
+      task_id: taskId ?? 'UNKNOWN',
+      status: 'FAILED',
+      failure_type: 'FORBIDDEN_FILES',
+      error: `Task menyentuh file terlarang (forbidden):\n${list}`,
+      affected_files: violations.map((v) => v.file),
+      next_action: 'Revert perubahan pada file forbidden atau mintalah izin lingkup teknis baru.',
+    };
     throw new GuardError(
       `Task menyentuh file terlarang (forbidden).\n${list}\n\nPerbaiki dengan revert perubahan tersebut, atau jalankan: pakeai done --force`,
+      failure
     );
   }
 
@@ -146,8 +169,18 @@ export async function runGuard(spec: GuardSpec, cwd: string): Promise<void> {
     const { ok, output } = await runValidationCommands(commands, cwd);
     console.log(output);
     if (!ok) {
+      const failure: FailureContext = {
+        task_id: taskId ?? 'UNKNOWN',
+        status: 'FAILED',
+        failure_type: 'TEST_FAILURE',
+        command: commands.join(' && '),
+        error: output.slice(-600),
+        affected_files: changed,
+        next_action: 'Perbaiki kegagalan kode sesuai output test/build di atas sebelum menandai selesai.',
+      };
       throw new GuardError(
         'Validation commands GAGAL. Task belum layak ditandai selesai.\nPerbaiki kegagalan di atas, atau jalankan: pakeai done --force',
+        failure
       );
     }
     console.log('\nSemua validation commands lolos.');

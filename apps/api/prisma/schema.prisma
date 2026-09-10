@@ -87,6 +87,7 @@ model Project {
   status      String   @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
   reviewFlow  Boolean  @default(false)   // bila true, complete -> REVIEW dulu
   wizardStep  String   @default("done")  // chat | interview | techstack | brd | tree | board | guide | done
+  uiSpec      Json?                      // spesifikasi desain UI/UX terstruktur (Bab 14)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

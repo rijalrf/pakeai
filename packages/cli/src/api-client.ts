@@ -99,6 +99,12 @@ export const api = {
   done(cfg: Config, id: string) {
     return request<StatusResp>(cfg, `/api/agent/tasks/${id}/complete`, { method: 'POST' });
   },
+  fail(cfg: Config, id: string, failure: unknown) {
+    return request<{ ok: true; taskId: string; status: string }>(cfg, `/api/agent/tasks/${id}/fail`, {
+      method: 'POST',
+      body: JSON.stringify(failure),
+    });
+  },
   brd(cfg: Config) {
     return request<BrdResponse>(cfg, '/api/agent/brd');
   },
