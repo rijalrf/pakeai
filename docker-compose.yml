@@ -1,0 +1,53 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: pakeai-api
+    ports:
+      - "6655:6655"
+    env_file:
+      - path: apps/api/.env
+        required: false
+    environment:
+      - PORT=6655
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:admin123@host.docker.internal:5432/project_ai_planner}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://host.docker.internal:20128/v1}
+      - FE_URL=${FE_URL:-http://localhost:3455,https://pakeai.mrijal.my.id}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-https://pakeai.mrijal.my.id}
+    container_name: pakeai-web
+    ports:
+      - "3455:3455"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Service database opsional jika ingin container Postgres mandiri
+  # Jalankan dengan: docker compose --profile with-db up -d
+  db:
+    image: postgres:16-alpine
+    container_name: pakeai-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_DB: project_ai_planner
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    profiles:
+      - with-db
+
+volumes:
+  pgdata:
