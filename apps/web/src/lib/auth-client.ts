@@ -7,6 +7,7 @@ function resolveApiUrl() {
     if (host === 'localhost' || host === '127.0.0.1') {
       return 'http://localhost:6655';
     }
+    return window.location.origin;
   }
   return import.meta.env.VITE_API_URL ?? 'http://localhost:6655';
 }

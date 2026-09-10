@@ -54,7 +54,7 @@ Schema JSON (WAJIB):
 }
 
 Aturan bounded context:
-- Task layer DATABASE: bebas di folder prisma/ & apps/api/prisma/schema.prisma saja.
+- Task layer DATABASE: bebas di folder prisma/ & apps/api/prisma/schema.prisma saja. Gunakan provider "sqlite" secara default (file lokal dev.db) agar aplikasi hasil generate tidak memerlukan instalasi database server eksternal.
 - Task layer BACKEND: bebas di apps/api/src/**, JANGAN sentuh apps/web/** atau prisma schema.
 - Task layer FRONTEND: bebas di apps/web/src/**, JANGAN sentuh apps/api/**.
 - forbidden WAJIB berisi path di luar layer (mis. BACKEND -> ["apps/web/**", "apps/api/prisma/**"]).

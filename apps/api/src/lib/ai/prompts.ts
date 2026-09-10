@@ -82,14 +82,15 @@ Input:
 - Target pengguna & scale: {targetAndScale}
 
 Pertimbangan:
-- User non-teknis: pilih stack modern namun mudah di-deploy dan di-scale nanti.
-- Prioritaskan stack yang punya ecosystem besar (JavaScript/TypeScript): React, Node.js/Express, PostgreSQL/MongoDB, Docker, dll.
-- Sertakan versi dasar (mis. "React v18", "Node.js 20 LTS").
+- User non-teknis: pilih stack modern, zero-config lokal, dan mudah dijalankan langsung.
+- Prioritaskan stack JavaScript/TypeScript: React, Node.js/Express, SQLite + Prisma ORM, Tailwind CSS.
+- Database default: SQLite + Prisma ORM (zero-config file lokal 'dev.db', tanpa perlu instalasi server database lokal terpisah seperti PostgreSQL/MySQL).
+- Sertakan versi dasar (mis. "React v18", "Node.js 20 LTS", "SQLite + Prisma ORM").
 
 Output JSON:
 {
   "reasoning": "penjelasan singkat mengapa stack ini dipilih",
-  "techStack": ["frontend: React v18", "backend: Express + TypeScript", "database: PostgreSQL", ...]
+  "techStack": ["frontend: React v18", "backend: Express + TypeScript", "database: SQLite + Prisma ORM", ...]
 }`;
 
 // ============================================================
