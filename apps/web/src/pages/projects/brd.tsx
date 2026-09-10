@@ -11,6 +11,17 @@ type BrdContent = {
   overview?: string;
   goals?: string[];
   features?: Array<{ name: string; description?: string }>;
+  functionalRequirements?: Array<{
+    id: string;
+    title: string;
+    description: string;
+    priority?: 'MUST' | 'SHOULD' | 'COULD';
+    actor?: string;
+  }>;
+  businessRules?: Array<{
+    id: string;
+    description: string;
+  }>;
   techRequirements?: string[];
   nonFunctional?: string[];
   outOfScope?: string[];
@@ -143,6 +154,61 @@ export function BrdPage() {
                       <p className="text-xs text-muted-foreground mt-1">{f.description}</p>
                     )}
                   </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Functional Requirements (FR-xxx) */}
+        {brd?.functionalRequirements && brd.functionalRequirements.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Kebutuhan Fungsional (Source of Truth)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {brd.functionalRequirements.map((r) => (
+                  <div key={r.id} className="p-3 rounded-md border border-border bg-card/50 flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="default" className="font-mono text-xs">
+                        {r.id}
+                      </Badge>
+                      <span className="font-semibold text-sm">{r.title}</span>
+                      {r.priority && (
+                        <Badge variant="outline" className="ml-auto text-[10px]">
+                          {r.priority}
+                        </Badge>
+                      )}
+                      {r.actor && (
+                        <Badge variant="outline" className="text-[10px]">
+                          {r.actor}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">{r.description}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Business Rules (BR-xxx) */}
+        {brd?.businessRules && brd.businessRules.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Aturan Bisnis (Business Rules)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {brd.businessRules.map((b) => (
+                  <div key={b.id} className="flex items-start gap-2.5 p-2.5 rounded-md border border-border/70 text-xs">
+                    <Badge variant="outline" className="font-mono shrink-0">
+                      {b.id}
+                    </Badge>
+                    <span className="pt-0.5">{b.description}</span>
+                  </div>
                 ))}
               </div>
             </CardContent>
