@@ -29,7 +29,7 @@ const RoadmapSchema = z.object({
 
 export type RoadmapData = z.infer<typeof RoadmapSchema>;
 
-export async function generateRoadmapFromBRD(brd: BrdData): Promise<RoadmapData> {
+export async function generateRoadmapFromBRD(brd: BrdData, opts?: { projectId?: string }): Promise<RoadmapData> {
   const system = `Anda adalah Principal Systems Architect. Pecah BRD menjadi Feature Execution Graph terstruktur.
 Setiap fase mengelompokkan layer delivery (DATABASE, BACKEND, FRONTEND, INTEGRATION).
 Setiap fitur dalam fase wajib memodelkan dependensi logis (dependsOn) ke fitur prasyarat agar eksekusi task otonom berjalan teratur tanpa race conditions atau circular dependency.`;
@@ -64,5 +64,11 @@ PRINSIP EXECUTION GRAPH:
 4. Jangan membuat siklus ketergantungan (circular dependency).
 5. Minimal 3 fase, total fitur 5-15. Kembalikan HANYA JSON.`;
 
-  return generateJson({ system, user, schema: RoadmapSchema });
+  return generateJson({
+    system,
+    user,
+    schema: RoadmapSchema,
+    agentName: 'FeatureExecutionGraph',
+    projectId: opts?.projectId,
+  });
 }

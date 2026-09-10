@@ -30,5 +30,5 @@ export async function generateDiscoveryQuestions(idea: string): Promise<Discover
 
   const user = `IDE APLIKASI:\n${idea}\n\nSchema JSON WAJIB:\n{\n  "questions": [\n    { "question": string, "context"?: string }\n  ]\n}\n\nKembalikan HANYA JSON. Jangan sapa.`;
 
-  return generateJson({ system, user, schema: DiscoverySchema }).then((o) => o.questions);
+  return generateJson({ system, user, schema: DiscoverySchema, agentName: 'DiscoveryQuestions' }).then((o) => o.questions);
 }
