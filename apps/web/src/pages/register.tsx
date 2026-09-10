@@ -23,7 +23,7 @@ export function RegisterPage() {
       setErr(res.error.message ?? 'Registrasi gagal.');
       return;
     }
-    navigate('/dashboard');
+    navigate('/'); // Redirect to home page
   }
 
   return (

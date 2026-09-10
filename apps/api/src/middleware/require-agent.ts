@@ -1,17 +1,24 @@
-// Verifikasi PAT (Personal Access Token) untuk endpoint agent (CLI).
-// Isolasi project ditegakkan di sini: agent hanya bisa akses projectId dari token.
+// Verifikasi Universal PAT (Personal Access Token) untuk endpoint agent (CLI).
+// Token bisa access multiple projects via agentTokenScopes relation.
+// Isolasi project ditegakkan per request via X-Project-ID header atau ?projectId query param.
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 
-export interface AgentRequest extends Request {
-  agent: {
-    tokenId: string;
-    userId: string;
-    projectId: string;
-    projectName: string;
-  };
+declare global {
+  namespace Express {
+    interface Request {
+      agent: {
+        tokenId: string;
+        userId: string;
+        projectId: string;
+        projectName: string;
+      };
+    }
+  }
 }
+
+export type AgentRequest = Request;
 
 function hashToken(token: string) {
   return crypto.createHash('sha256').update(token).digest('hex');
@@ -29,13 +36,36 @@ export async function requireAgent(req: Request, res: Response, next: NextFuncti
   }
 
   const tokenHash = hashToken(token);
+
+  // Get token with all scopes
   const record = await prisma.agentToken.findUnique({
     where: { tokenHash },
-    include: { project: true },
+    include: {
+      user: true,
+      agentTokenScopes: { include: { project: true } },
+    },
   });
 
   if (!record || record.isRevoked) {
     return res.status(401).json({ error: 'Token tidak dikenali atau sudah dicabut.' });
+  }
+
+  // Get target project from header or query param
+  const projectIdFromHeader = req.headers['x-project-id'] as string | undefined;
+  const projectIdFromQuery = req.query.projectId as string | undefined;
+  const projectId = projectIdFromHeader ?? projectIdFromQuery;
+
+  if (!projectId) {
+    return res.status(400).json({ error: 'Project ID required. Send X-Project-ID header or ?projectId query param.' });
+  }
+
+  // Validate token has scope for this project
+  const scopedRecord = record.agentTokenScopes?.find(
+    (scope) => scope.projectId === projectId,
+  );
+
+  if (!scopedRecord) {
+    return res.status(403).json({ error: `Token ini tidak punya akses ke project ${projectId}` });
   }
 
   // Update last_used_at (fire-and-forget; tidak boleh menggagalkan request).
@@ -45,9 +75,9 @@ export async function requireAgent(req: Request, res: Response, next: NextFuncti
 
   (req as AgentRequest).agent = {
     tokenId: record.id,
-    userId: record.userId,
-    projectId: record.projectId,
-    projectName: record.project.name,
+    userId: record.user.id,
+    projectId: projectId,
+    projectName: scopedRecord.project.name,
   };
   next();
 }

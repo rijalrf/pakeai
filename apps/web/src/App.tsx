@@ -2,15 +2,16 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useSession } from '@/lib/auth-client';
 import { LoginPage } from '@/pages/login';
 import { RegisterPage } from '@/pages/register';
-import { DashboardPage } from '@/pages/dashboard';
-import { OnboardingPage } from '@/pages/onboarding';
+import { HomePage } from '@/pages/home';
+import { ProjectsPage } from '@/pages/projects/index';
+import { ChatPage } from '@/pages/chat';
 import { InterviewPage } from '@/pages/projects/interview';
+import { TechStackPage } from '@/pages/projects/techstack';
 import { BrdPage } from '@/pages/projects/brd';
-import { RoadmapPage } from '@/pages/projects/roadmap';
-import { TasksPage } from '@/pages/projects/tasks';
-import { ExecutePage } from '@/pages/projects/execute';
-import { SettingsPage } from '@/pages/projects/settings';
-import { ReadyPage } from '@/pages/projects/ready';
+import { TreePage } from '@/pages/projects/tree';
+import { BoardPage } from '@/pages/projects/board';
+import { GuidePage } from '@/pages/projects/guide';
+import WizardLayout from '@/components/layout/wizard-layout';
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { data, isPending } = useSession();
@@ -22,82 +23,31 @@ function Protected({ children }: { children: React.ReactNode }) {
 export function App() {
   return (
     <Routes>
+      {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+      {/* Protected routes wrapped in WizardLayout */}
       <Route
-        path="/onboarding"
         element={
           <Protected>
-            <OnboardingPage />
+            <WizardLayout />
           </Protected>
         }
-      />
-      <Route
-        path="/dashboard"
-        element={
-          <Protected>
-            <DashboardPage />
-          </Protected>
-        }
-      />
-      <Route
-        path="/projects/:projectId/brd"
-        element={
-          <Protected>
-            <InterviewPage />
-          </Protected>
-        }
-      />
-      <Route
-        path="/projects/:projectId/brd/view"
-        element={
-          <Protected>
-            <BrdPage />
-          </Protected>
-        }
-      />
-      <Route
-        path="/projects/:projectId/roadmap"
-        element={
-          <Protected>
-            <RoadmapPage />
-          </Protected>
-        }
-      />
-      <Route
-        path="/projects/:projectId/tasks"
-        element={
-          <Protected>
-            <TasksPage />
-          </Protected>
-        }
-      />
-      <Route
-        path="/projects/:projectId/ready"
-        element={
-          <Protected>
-            <ReadyPage />
-          </Protected>
-        }
-      />
-      <Route
-        path="/projects/:projectId/execute"
-        element={
-          <Protected>
-            <ExecutePage />
-          </Protected>
-        }
-      />
-      <Route
-        path="/projects/:projectId/settings"
-        element={
-          <Protected>
-            <SettingsPage />
-          </Protected>
-        }
-      />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      >
+        <Route path="/" element={<HomePage />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/chat/:sessionId" element={<ChatPage />} />
+        <Route path="/projects/:projectId/interview" element={<InterviewPage />} />
+        <Route path="/projects/:projectId/techstack" element={<TechStackPage />} />
+        <Route path="/projects/:projectId/brd" element={<BrdPage />} />
+        <Route path="/projects/:projectId/tree" element={<TreePage />} />
+        <Route path="/projects/:projectId/board" element={<BoardPage />} />
+        <Route path="/projects/:projectId/guide" element={<GuidePage />} />
+      </Route>
+
+      {/* Fallback 404 */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

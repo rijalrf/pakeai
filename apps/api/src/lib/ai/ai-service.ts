@@ -6,7 +6,7 @@ import { z } from 'zod';
 export type GenerateJsonParams<T> = {
   system: string;
   user: string;
-  schema: z.ZodType<T>;
+  schema: z.ZodType<T, any, any>;
   maxRetries?: number;
 };
 
@@ -16,6 +16,19 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? 'sk-local',
   baseURL: process.env.OPENAI_BASE_URL ?? 'http://localhost:20128/v1',
 });
+
+function cleanJsonText(raw: string): string {
+  let text = raw.trim();
+  if (text.startsWith('```json')) {
+    text = text.slice(7);
+  } else if (text.startsWith('```')) {
+    text = text.slice(3);
+  }
+  if (text.endsWith('```')) {
+    text = text.slice(0, -3);
+  }
+  return text.trim();
+}
 
 export async function generateJson<T>({
   system,
@@ -35,7 +48,8 @@ export async function generateJson<T>({
         response_format: { type: 'json_object' },
         temperature: 0.4,
       });
-      const text = resp.choices[0]?.message?.content ?? '';
+      const rawText = resp.choices[0]?.message?.content ?? '';
+      const text = cleanJsonText(rawText);
       const parsed = JSON.parse(text);
       const validated = schema.parse(parsed);
       return validated;

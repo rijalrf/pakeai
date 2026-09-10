@@ -16,11 +16,21 @@ async function request<T>(cfg: Config, path: string, init: RequestInit = {}): Pr
     throw new ApiError('Belum login. Jalankan: pakeai login <token>', 401);
   }
   const url = `${cfg.apiUrl.replace(/\/$/, '')}${path}`;
+
+  // Build headers with X-Project-ID if specified
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${cfg.token}`,
+  };
+
+  if (cfg.projectId) {
+    headers['X-Project-ID'] = cfg.projectId;
+  }
+
   const resp = await fetch(url, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${cfg.token}`,
+      ...headers,
       ...(init.headers ?? {}),
     },
   });
@@ -51,10 +61,21 @@ export type NextTask = {
 export type ContextResp = { ok: true; taskId: string; markdown: string };
 export type StatusResp = { ok: true; taskId: string; status: string; checkpointPending?: boolean; layer?: string };
 export type BrdResponse = { brd: { id: string; content: unknown; version: number; generatedAt: string } };
+export type ProjectScope = { id: string; name: string };
 
 export const api = {
   whoami(cfg: Config) {
     return request<Whoami>(cfg, '/api/agent/whoami');
+  },
+  // List all projects accessible by this token (without needing projectId)
+  listScopes(cfg: Config) {
+    // Force clear existing Authorization header from generic headers and set fresh one
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${cfg.token}`,
+      // Explicitly don't include X-Project-ID for this endpoint
+    };
+    return request<ProjectScope[]>(cfg, '/api/agent/scopes', { headers });
   },
   next(cfg: Config) {
     return request<NextTask>(cfg, '/api/agent/tasks/next');

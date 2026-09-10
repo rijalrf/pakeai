@@ -1,0 +1,37 @@
+# Development files
+src/
+*.ts
+*.tsx
+!dist/**
+
+# Build artifacts (will be regenerated)
+node_modules/
+.npmignore
+.eslintrc*
+.prettierrc*
+tsconfig.json
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+**/*.test.tsx
+**/*.spec.tsx
+__tests__/
+
+# IDE & Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Documentation
+README.md
+LICENSE
+CHANGELOG.md
+
+# Misc
+.gitignore
+.gitattributes
+.DS_Store
+Thumbs.db

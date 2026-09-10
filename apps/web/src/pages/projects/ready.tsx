@@ -6,12 +6,14 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { AppShell } from '@/components/layout/app-shell';
-import { Copy, Check, Download, Terminal } from 'lucide-react';
+import { Copy, Check, Download, Terminal, Key } from 'lucide-react';
 
 export function ReadyPage() {
   const { projectId = '' } = useParams();
   const navigate = useNavigate();
-  const [token, setToken] = useState('');
+  const [token] = useState(() => {
+    return localStorage.getItem(`pakeai_pat_${projectId}`) || '';
+  });
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -40,6 +42,7 @@ export function ReadyPage() {
     }
   }
 
+  const promptToken = token || 'PASTE_TOKEN_ANDA_DISINI';
   const finalPrompt = `# Master Prompt — AI Agent Loop untuk Project ${projectId}
 
 Anda adalah AI Coding Agent otonom. Tugas Anda: mengeksekusi task-task project ini secara berurutan menggunakan CLI pakeai.
@@ -50,7 +53,7 @@ Anda adalah AI Coding Agent otonom. Tugas Anda: mengeksekusi task-task project i
 ## Setup (jalankan 1x di awal)
 1. Login dengan token di bawah ini:
    \`\`\`
-   npx pakeai login {{TOKEN}}
+   npx pakeai login ${promptToken}
    \`\`\`
 
 ## Fetch BRD (lakukan sekali, sebelum loop task)
@@ -69,14 +72,13 @@ npx pakeai start      # tandai IN_PROGRESS
 npx pakeai context    # baca bounded context task aktif
 # >>> kerjakan task HANYA pada file yang BOLEH dibuat/dimodifikasi <<<
 npx pakeai done       # tandai selesai
+# ulang sampai semua task selesai
 \`\`\`
 
 ## Aturan Penting
 - Isolasi project: agent HANYA boleh membaca task/BRD dari project ini.
 - Bounded context: hanya sentuh file di files_to_create / files_to_modify. DILARANG ubah file di forbidden.
 - Checkpoint gate: jika ada pesan checkpoint, BERHENTI dan minta approval user sebelum lanjut.
-
-{{TOKEN}}
 `;
 
   return (
@@ -105,8 +107,15 @@ npx pakeai done       # tandai selesai
             </CardHeader>
             <CardContent className="text-sm space-y-2">
               <ol className="space-y-2 list-decimal pl-4">
-                <li>Buat token CLI di tab Settings.</li>
-                <li>Tempel token di kolom di samping.</li>
+                <li>
+                  {token ? (
+                    'Token CLI sudah terpasang otomatis.'
+                  ) : (
+                    <span>
+                      Klik <strong>Generate Key</strong> untuk membuat token baru.
+                    </span>
+                  )}
+                </li>
                 <li>Salin Master Prompt ke AI agent Anda.</li>
                 <li>Jalankan perintah login di terminal.</li>
                 <li>Biarkan AI agent menjalankan loop otomatis.</li>
@@ -124,23 +133,52 @@ npx pakeai done       # tandai selesai
               <CardDescription>Salin prompt ini ke AI agent Anda (Claude Code, Codex, Cursor, dll).</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div>
-                <label className="text-sm font-medium">Token CLI (PAT)</label>
-                <Input
-                  placeholder="pak_..."
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  className="font-mono"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Token tidak pernah dikirim ke server. Hanya replace placeholder di prompt.
-                </p>
-              </div>
+              {token ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium">Token CLI (PAT)</label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={() => navigate(`/projects/${projectId}/settings?from=ready`)}
+                    >
+                      Ganti / Generate Token Baru
+                    </Button>
+                  </div>
+                  <Input
+                    value={token}
+                    readOnly
+                    className="font-mono bg-muted text-muted-foreground cursor-not-allowed"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Token CLI aktif (read-only). Otomatis terpasang ke Master Prompt di bawah.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Token CLI (PAT)</label>
+                  <div className="border border-dashed border-amber-300 bg-amber-50 rounded-md p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-amber-900">Belum ada token CLI</p>
+                      <p className="text-xs text-amber-700">
+                        Buat token CLI baru untuk project ini agar AI agent bisa mengakses task.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => navigate(`/projects/${projectId}/settings?from=ready`)}
+                      className="shrink-0"
+                    >
+                      <Key className="h-4 w-4 mr-2" /> Generate Key
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               <Textarea
                 rows={16}
                 readOnly
-                value={finalPrompt.replace('{{TOKEN}}', token || '{{TOKEN}}')}
+                value={finalPrompt}
                 className="text-xs bg-muted"
               />
 

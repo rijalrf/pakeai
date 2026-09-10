@@ -1,5 +1,5 @@
 // Konfigurasi tersimpan di ~/.pakeai/config.json
-// Skema: { apiUrl, token?, activeTaskId? }
+// Skema: { apiUrl, token?, activeTaskId?, projectId? }
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -8,6 +8,7 @@ export type Config = {
   apiUrl: string;
   token?: string;
   activeTaskId?: string;
+  projectId?: string;
 };
 
 const DIR = path.join(os.homedir(), '.pakeai');
@@ -28,6 +29,7 @@ export function loadConfig(): Config {
       apiUrl: raw.apiUrl ?? process.env.PAKEAI_API_URL ?? 'http://localhost:6655',
       token: raw.token,
       activeTaskId: raw.activeTaskId,
+      projectId: raw.projectId,
     };
   } catch {
     return { apiUrl: process.env.PAKEAI_API_URL ?? 'http://localhost:6655' };

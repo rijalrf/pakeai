@@ -22,7 +22,7 @@ export function LoginPage() {
       setErr(res.error.message ?? 'Login gagal.');
       return;
     }
-    navigate('/dashboard');
+    navigate('/'); // Redirect to home (not dashboard)
   }
 
   return (

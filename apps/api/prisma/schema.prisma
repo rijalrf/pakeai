@@ -15,18 +15,19 @@ datasource db {
 // ============================================================
 
 model User {
-  id            String   @id @default(cuid())
-  email         String   @unique
-  name          String?
-  emailVerified Boolean  @default(false)
-  image         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id             String     @id @default(cuid())
+  email          String     @unique
+  name           String?
+  emailVerified  Boolean    @default(false)
+  image          String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
-  sessions      Session[]
-  accounts      Account[]
-  projects      Project[]
-  agentTokens   AgentToken[]
+  sessions       Session[]
+  accounts       Account[]
+  projects       Project[]
+  agentTokens    AgentToken[]
+  chatSessions   ChatSession[]
 }
 
 model Session {
@@ -85,17 +86,20 @@ model Project {
   description String?
   status      String   @default("DRAFT") // DRAFT | ACTIVE | ARCHIVED
   reviewFlow  Boolean  @default(false)   // bila true, complete -> REVIEW dulu
+  wizardStep  String   @default("done")  // chat | interview | techstack | brd | tree | board | guide | done
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  stacks         Stack[]
-  questions      DiscoveryQuestion[]
-  brd            Brd?
-  roadmap        RoadmapPhase[]
-  tasks          Task[]
-  agentTokens    AgentToken[]
-  checkpoints    Checkpoint[]
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stacks           Stack[]
+  questions        DiscoveryQuestion[]
+  brd              Brd?
+  roadmap          RoadmapPhase[]
+  tasks            Task[]
+  agentTokenScopes AgentTokenScope[]
+  checkpoints      Checkpoint[]
+  chatSession      ChatSession?
+  treeNodes        TreeNode[]
 
   @@index([userId])
 }
@@ -230,24 +234,34 @@ model TaskDependency {
 }
 
 // ============================================================
-// Agent (CLI) — PAT & session
+// Agent (CLI) — Universal PAT with multi-project scope
 // ============================================================
 
 model AgentToken {
-  id          String   @id @default(cuid())
+  id          String            @id @default(cuid())
   userId      String
-  projectId   String
   name        String
-  tokenHash   String   @unique // sha256(token)
+  tokenHash   String            @unique // sha256(token)
   lastUsedAt  DateTime?
-  isRevoked   Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  isRevoked   Boolean           @default(false)
+  createdAt   DateTime          @default(now())
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  sessions AgentSession[]
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentTokenScopes AgentTokenScope[]
+  sessions     AgentSession[]
 
   @@index([userId])
+}
+
+model AgentTokenScope {
+  id        String   @id @default(cuid())
+  tokenId   String
+  projectId String
+
+  token AgentToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([tokenId, projectId]) // ← prevent duplicate scoping
   @@index([projectId])
 }
 
@@ -278,4 +292,55 @@ model Checkpoint {
 
   @@index([projectId])
   @@index([status])
+}
+
+// ============================================================
+// Chat Flow — sesi chat sebelum project dibuat
+// ============================================================
+
+model ChatSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    String   @default("active") // "active" | "finalized" | "abandoned"
+  summary   String?  // ringkasan ide hasil chat (untuk nama project & konteks interview)
+  projectId String?  @unique
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  messages  ChatMessage[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String      // "user" | "assistant"
+  kind      String      @default("text") // "text" | "form" | "done"
+  content   String      // teks pesan; jawaban form diserialkan jadi teks
+  payload   Json?       // payload terstruktur untuk kind="form"/"done"
+  createdAt DateTime    @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
+// ============================================================
+// Tree Diagram — hierarki App -> Fitur -> Sub-fitur -> Task -> Sub-task
+// ============================================================
+
+model TreeNode {
+  id        String     @id @default(cuid())
+  projectId String
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    TreeNode?  @relation("TreeHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children  TreeNode[] @relation("TreeHierarchy")
+  label     String
+  kind      String     // "app" | "feature" | "subfeature" | "task" | "subtask"
+  order     Int        @default(0)
+  createdAt DateTime   @default(now())
+
+  @@index([projectId, parentId])
 }

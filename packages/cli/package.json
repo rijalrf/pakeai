@@ -1,7 +1,21 @@
 {
   "name": "pakeai",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
+  "description": "CLI agent loop untuk AI coding agent - autonomous task execution via bounded context isolation",
+  "keywords": [
+    "cli",
+    "ai",
+    "coding-agent",
+    "autonomous",
+    "task-execution"
+  ],
+  "homepage": "https://github.com/rijalrf/pakeai#readme",
+  "bugs": {
+    "url": "https://github.com/rijalrf/pakeai/issues",
+    "email": "support@pakeai.dev"
+  },
+  "license": "MIT",
+  "author": "Rijal RF <support@pakeai.dev>",
   "type": "module",
   "bin": {
     "pakeai": "./dist/index.js"
@@ -9,7 +23,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "publish:latest": "npm run build && npm publish --access public",
+    "publish:beta": "npm run build && npm publish --tag beta --access public"
   },
   "dependencies": {
     "commander": "^12.1.0"
@@ -18,5 +34,12 @@
     "@types/node": "^22.9.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rijalrf/pakeai.git"
   }
 }

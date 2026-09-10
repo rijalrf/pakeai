@@ -1,122 +1,258 @@
-// Halaman discovery interview: generate pertanyaan, jawab, lalu generate BRD.
-import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import { AppShell } from '@/components/layout/app-shell';
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
+// Interview page: pertanyaan dari hasil chat + tombol Rekomendasi AI per pertanyaan
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Sparkles, ArrowRight } from 'lucide-react';
+import { CheckCircle2, Sparkles, Loader2, ArrowRight } from 'lucide-react';
 
-type Question = { id: string; question: string; answers: { id: string; answer: string }[] };
+type InterviewQuestion = {
+  id?: string;
+  questionId?: string;
+  question: string;
+  context?: string;
+  answer: string;
+  skipped?: boolean;
+  recommended?: boolean;
+};
 
 export function InterviewPage() {
-  const { projectId = '' } = useParams();
+  const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const qc = useQueryClient();
+  const [questions, setQuestions] = useState<InterviewQuestion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [recommendingIndex, setRecommendingIndex] = useState<number | null>(null);
 
-  const questionsQ = useQuery({
-    queryKey: ['discovery', projectId],
-    queryFn: () => api<{ questions: Question[] }>(`/api/projects/${projectId}/discovery`),
-  });
+  // Load atau generate questions
+  useEffect(() => {
+    if (!projectId) return;
 
-  const generateMut = useMutation({
-    mutationFn: () => api(`/api/projects/${projectId}/discovery/generate`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['discovery', projectId] }),
-  });
+    const loadInterview = async () => {
+      try {
+        const res = await fetch(`http://localhost:6655/api/projects/${projectId}/brd`, {
+          credentials: 'include',
+        });
+        const json = await res.json();
 
-  const [draft, setDraft] = useState<Record<string, string>>({});
+        // Jika belum ada BRD atau tidak ada questions, generate dulu
+        if (!json.brd || !json.project?.brd) {
+          await fetch(`http://localhost:6655/api/projects/${projectId}/interview/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+          });
 
-  const answerMut = useMutation({
-    mutationFn: ({ qid, answer }: { qid: string; answer: string }) =>
-      api(`/api/discovery/${qid}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
-    onSuccess: (_, vars) => {
-      setDraft((d) => ({ ...d, [vars.qid]: '' }));
-      qc.invalidateQueries({ queryKey: ['discovery', projectId] });
-    },
-  });
+          // Fetch again after generation
+          const finalRes = await fetch(`http://localhost:6655/api/projects/${projectId}/discovery`, {
+            credentials: 'include',
+          });
+          const finalJson = await finalRes.json();
+          const mapped = (finalJson.questions || []).map((q: any) => ({
+            id: q.id,
+            questionId: q.id,
+            question: q.question,
+            context: q.context,
+            answer: q.answers?.[0]?.answer || '',
+            skipped: false,
+            recommended: false,
+          }));
+          setQuestions(mapped);
+        } else {
+          const discoveryRes = await fetch(`http://localhost:6655/api/projects/${projectId}/discovery`, {
+            credentials: 'include',
+          });
+          const discoveryJson = await discoveryRes.json();
+          const mapped = (discoveryJson.questions || []).map((q: any) => ({
+            id: q.id,
+            questionId: q.id,
+            question: q.question,
+            context: q.context,
+            answer: q.answers?.[0]?.answer || '',
+            skipped: false,
+            recommended: false,
+          }));
+          setQuestions(mapped);
+        }
+      } catch (err) {
+        console.error('Gagal load interview:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const brdMut = useMutation({
-    mutationFn: () => api(`/api/projects/${projectId}/brd/generate`, { method: 'POST' }),
-    onSuccess: () => navigate(`/projects/${projectId}/brd/view`),
-  });
+    loadInterview();
+  }, [projectId]);
 
-  const answered = questionsQ.data?.questions.filter((q) => q.answers.length > 0).length ?? 0;
-  const total = questionsQ.data?.questions.length ?? 0;
+  const getRecommendation = async (index: number) => {
+    setRecommendingIndex(index);
+    try {
+      const q = questions[index];
+      const res = await fetch(`http://localhost:6655/api/projects/${projectId}/interview/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ questionIndex: index }),
+      });
+      const json = await res.json();
 
-  return (
-    <AppShell back="/dashboard" title="BRD Generator">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Interview Discovery</CardTitle>
-              <CardDescription>Jawab pertanyaan berikut. AI akan mengubah jawaban Anda menjadi BRD yang terstruktur.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {questionsQ.isLoading && <p className="text-muted-foreground">Memuat pertanyaan...</p>}
-              {questionsQ.data?.questions.length === 0 && (
-                <div className="text-center py-6">
-                  <p className="text-muted-foreground mb-3">Belum ada pertanyaan.</p>
-                  <Button onClick={() => generateMut.mutate()} disabled={generateMut.isPending}>
-                    <Sparkles className="h-4 w-4" /> Generate Pertanyaan
-                  </Button>
-                </div>
-              )}
-              {questionsQ.data?.questions.map((q, idx) => {
-                const existing = q.answers[0]?.answer;
-                const value = draft[q.id] ?? existing ?? '';
-                return (
-                  <div key={q.id} className="border rounded-md p-3">
-                    <p className="font-medium text-sm mb-2">{idx + 1}. {q.question}</p>
-                    <Textarea
-                      rows={3}
-                      value={value}
-                      onChange={(e) => setDraft((d) => ({ ...d, [q.id]: e.target.value }))}
-                      placeholder="Ketik jawaban Anda..."
-                    />
-                    <div className="mt-2 flex justify-end">
-                      <Button
-                        size="sm"
-                        disabled={answerMut.isPending || !value.trim()}
-                        onClick={() => answerMut.mutate({ qid: q.id, answer: value })}
-                      >
-                        {existing ? 'Update Jawaban' : 'Kirim Jawaban'}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-        </div>
+      // Update jawaban rekomendasi
+      setQuestions((prev) => prev.map((qItem, idx) => {
+        if (idx === index) {
+          return { ...qItem, answer: json.recommendation || 'Isi jawaban yang paling sesuai...', recommended: true };
+        }
+        return qItem;
+      }));
+    } catch (err) {
+      console.error('Gagal dapat rekomendasi:', err);
+      alert('Gagal mendapatkan rekomendasi AI.');
+    } finally {
+      setRecommendingIndex(null);
+    }
+  };
 
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Progress</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-1">Terjawab</p>
-              <p className="text-2xl font-semibold">{answered} / {total}</p>
-              <Button
-                className="mt-4 w-full"
-                disabled={answered === 0 || brdMut.isPending}
-                onClick={() => brdMut.mutate()}
-              >
-                <Sparkles className="h-4 w-4" /> {brdMut.isPending ? 'Generating...' : 'Generate BRD'}
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-              {brdMut.isError && (
-                <p className="text-xs text-destructive mt-2">
-                  Gagal generate BRD. Coba lagi, atau periksa apakah AI gateway aktif.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+  const handleAnswerChange = (index: number, value: string) => {
+    setQuestions((prev) => prev.map((q, i) => (i === index ? { ...q, answer: value, recommended: false } : q)));
+  };
+
+  const handleSkip = (index: number) => {
+    setQuestions((prev) => prev.map((q, i) => (i === index ? { ...q, skipped: true, answer: q.answer } : q)));
+  };
+
+  const saveAndContinue = async () => {
+    setSaving(true);
+
+    // Kirim semua answers ke backend
+    try {
+      const answersToSend = questions.map((q) => ({
+        questionId: q.questionId || q.id,
+        answer: q.skipped ? 'Dilewati' : (q.answer || 'Tidak ada jawaban'),
+        skipped: q.skipped || false,
+      }));
+
+      const res = await fetch(`http://localhost:6655/api/projects/${projectId}/interview`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ answers: answersToSend }),
+      });
+
+      if (res.ok) {
+        navigate(`/projects/${projectId}/techstack`);
+      } else {
+        const err = await res.json();
+        console.error('Gagal simpan interview:', err);
+        alert('Terjadi kesalahan saat menyimpan jawaban.');
+      }
+    } catch (err) {
+      console.error('Error saving:', err);
+      alert('Terjadi kesalahan saat menyimpan jawaban.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] px-6 py-6">
+        <div className="max-w-3xl mx-auto space-y-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardHeader>
+                <div className="h-4 bg-muted w-3/4 rounded animate-pulse" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="h-20 bg-muted rounded animate-pulse" />
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </div>
-    </AppShell>
+    );
+  }
+
+  return (
+    <div className="min-h-[calc(100vh-4rem)] px-6 py-6">
+      {/* Header */}
+      <div className="max-w-3xl mx-auto mb-6">
+        <h1 className="text-2xl font-semibold">Interview Kebutuhan Aplikasi</h1>
+        <p className="text-muted-foreground mt-1">Jawab beberapa pertanyaan untuk memperjelas requirements aplikasi.</p>
+      </div>
+
+      {/* Pertanyaan list */}
+      <div className="max-w-3xl mx-auto space-y-4 pb-8">
+        {questions.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              Belum ada pertanyaan. Silakan refresh halaman.
+            </CardContent>
+          </Card>
+        ) : (
+          questions.map((q, idx) => (
+            <Card key={idx}>
+              <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+                <CardTitle className="text-base">{idx + 1}. {q.question}</CardTitle>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => getRecommendation(idx)}
+                  disabled={recommendingIndex === idx}
+                  className="gap-2"
+                >
+                  {recommendingIndex === idx ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  Rekomendasi AI
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Textarea
+                  placeholder="Tulis jawaban Anda..."
+                  value={q.answer}
+                  onChange={(e) => handleAnswerChange(idx, e.target.value)}
+                  rows={3}
+                  className="resize-none"
+                />
+                {q.recommended && (
+                  <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Direkomendasikan oleh AI</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-end">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleSkip(idx)}
+                    disabled={saving}
+                  >
+                    Lewati
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+
+        {/* Tombol Lanjut */}
+        <div className="flex justify-end pt-4">
+          <Button
+            size="lg"
+            onClick={saveAndContinue}
+            disabled={saving || questions.some(q => !q.answer && !q.skipped)}
+            className="gap-2"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowRight className="h-4 w-4" />
+            )}
+            Lanjut ke Tech Stack
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
