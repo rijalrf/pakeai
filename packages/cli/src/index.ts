@@ -10,7 +10,7 @@ const program = new Command();
 program
   .name('pakeai')
   .description('CLI agent loop untuk pakeai (AI Planner). Dipakai oleh AI coding agent.')
-  .version('0.1.0');
+  .version('0.2.1');
 
 program
   .command('login <token>')
