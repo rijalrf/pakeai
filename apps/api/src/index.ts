@@ -307,27 +307,63 @@ app.get('/api/agent/whoami', requireAgent, (req: AgentRequest, res) => {
 app.get('/api/agent/tasks/next', requireAgent, async (req: AgentRequest, res) => {
   const projectId = req.agent.projectId;
 
-  // Prioritas: ada task IN_PROGRESS? lanjutkan. Kalau tidak, ambil TODO paling kecil order.
+  // Prioritas 1: Lanjutkan task yang sedang IN_PROGRESS bila ada
   const inProgress = await prisma.task.findFirst({
     where: { projectId, status: 'IN_PROGRESS' },
     orderBy: { order: 'asc' },
   });
-  const task = inProgress ?? (await prisma.task.findFirst({
+  if (inProgress) {
+    return res.json({
+      hasTask: true,
+      task: {
+        id: inProgress.id,
+        title: inProgress.title,
+        description: inProgress.description,
+        layer: inProgress.layer,
+        order: inProgress.order,
+        status: inProgress.status,
+      },
+    });
+  }
+
+  // Prioritas 2: Cari task TODO yang semua dependensinya (dependsOn) sudah DONE
+  const allTodo = await prisma.task.findMany({
     where: { projectId, status: 'TODO' },
+    include: {
+      dependsOn: {
+        include: {
+          dependsOn: { select: { id: true, title: true, status: true, order: true } },
+        },
+      },
+    },
     orderBy: { order: 'asc' },
-  }));
-  if (!task) {
+  });
+
+  if (allTodo.length === 0) {
     return res.json({ hasTask: false, message: 'Tidak ada task TODO tersisa.' });
   }
+
+  // Cari task yang tidak terblokir (semua dependensi prasyarat sudah status DONE)
+  const readyTask = allTodo.find((t) =>
+    t.dependsOn.every((d) => d.dependsOn.status === 'DONE')
+  );
+
+  if (!readyTask) {
+    return res.json({
+      hasTask: false,
+      message: 'Semua task TODO tersisa masih menunggu dependensi prasyarat selesai.',
+    });
+  }
+
   res.json({
     hasTask: true,
     task: {
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      layer: task.layer,
-      order: task.order,
-      status: task.status,
+      id: readyTask.id,
+      title: readyTask.title,
+      description: readyTask.description,
+      layer: readyTask.layer,
+      order: readyTask.order,
+      status: readyTask.status,
     },
   });
 });
@@ -335,9 +371,25 @@ app.get('/api/agent/tasks/next', requireAgent, async (req: AgentRequest, res) =>
 app.post('/api/agent/tasks/:id/start', requireAgent, async (req: AgentRequest, res) => {
   const task = await prisma.task.findFirst({
     where: { id: req.params.id, projectId: req.agent.projectId },
+    include: {
+      dependsOn: {
+        include: {
+          dependsOn: { select: { id: true, title: true, status: true, order: true } },
+        },
+      },
+    },
   });
   if (!task) return res.status(404).json({ error: 'Task tidak ditemukan di project ini.' });
   if (task.status === 'DONE') return res.status(400).json({ error: 'Task sudah selesai.' });
+
+  // Validasi dependensi: cegah start bila dependensi belum DONE
+  const pendingDeps = task.dependsOn.filter((d) => d.dependsOn.status !== 'DONE');
+  if (pendingDeps.length > 0) {
+    const depList = pendingDeps.map((d) => `#${d.dependsOn.order} ${d.dependsOn.title} (${d.dependsOn.status})`).join(', ');
+    return res.status(400).json({
+      error: `Task tidak dapat dimulai karena dependensi belum selesai: ${depList}`,
+    });
+  }
 
   const updated = await prisma.task.update({
     where: { id: task.id },
@@ -422,7 +474,14 @@ app.post('/api/agent/tasks/:id/complete', requireAgent, async (req: AgentRequest
 app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, res) => {
   const task = await prisma.task.findFirst({
     where: { id: req.params.id, projectId: req.agent.projectId },
-    include: { project: { include: { brd: true } } },
+    include: {
+      project: { include: { brd: true } },
+      dependsOn: {
+        include: {
+          dependsOn: { select: { id: true, title: true, status: true, order: true } },
+        },
+      },
+    },
   });
   if (!task) return res.status(404).json({ error: 'Task tidak ditemukan di project ini.' });
 
@@ -456,7 +515,12 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
     `**Layer**: ${task.layer} | **Project**: ${task.project.name} | **Status**: ${task.status}`,
   ];
 
-  if (ctx.depends_on && ctx.depends_on.length > 0) {
+  if (task.dependsOn && task.dependsOn.length > 0) {
+    const depsText = task.dependsOn
+      .map((d) => `[#${d.dependsOn.order} ${d.dependsOn.title} (${d.dependsOn.status})]`)
+      .join(', ');
+    mdParts.push(`**Prasyarat (Depends On)**: ${depsText}`);
+  } else if (ctx.depends_on && ctx.depends_on.length > 0) {
     mdParts.push(`**Prasyarat (Depends On)**: ${ctx.depends_on.join(', ')}`);
   }
 
@@ -1070,6 +1134,14 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
     await prisma.task.deleteMany({ where: { projectId: project.id } });
 
     let order = 1;
+    const createdTasks: Array<{
+      dbId: string;
+      aiTaskId?: string;
+      order: number;
+      featureId?: string;
+      dependsOn: string[];
+    }> = [];
+
     for (const t of generated) {
       // Cari db feature yang punya tmpId = t.featureId
       let dbFeatureId: string | undefined;
@@ -1079,7 +1151,8 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
           break;
         }
       }
-      await prisma.task.create({
+      const currentOrder = order++;
+      const created = await prisma.task.create({
         data: {
           projectId: project.id,
           featureId: dbFeatureId,
@@ -1087,7 +1160,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
           description: t.description,
           layer: t.layer,
           status: 'TODO',
-          order: order++,
+          order: currentOrder,
           aiContext: {
             taskId: t.taskId,
             requirement_ids: t.requirement_ids,
@@ -1104,7 +1177,41 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
           acceptanceCriteria: t.acceptanceCriteria,
         },
       });
+
+      createdTasks.push({
+        dbId: created.id,
+        aiTaskId: t.taskId,
+        order: currentOrder,
+        featureId: t.featureId,
+        dependsOn: t.depends_on ?? [],
+      });
     }
+
+    // Hubungkan TaskDependency native di database
+    for (const item of createdTasks) {
+      if (item.dependsOn.length > 0) {
+        for (const dep of item.dependsOn) {
+          const cleanDep = dep.trim().toLowerCase();
+          const target = createdTasks.find(
+            (c) =>
+              c.dbId !== item.dbId &&
+              ((c.aiTaskId && c.aiTaskId.toLowerCase() === cleanDep) ||
+                `task-${c.order}` === cleanDep ||
+                String(c.order) === cleanDep ||
+                (c.featureId && c.featureId.toLowerCase() === cleanDep))
+          );
+          if (target) {
+            await prisma.taskDependency.create({
+              data: {
+                taskId: item.dbId,
+                dependsOnId: target.dbId,
+              },
+            });
+          }
+        }
+      }
+    }
+
     await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'guide' } });
     res.json({ ok: true, count: generated.length });
   } catch (err) {
@@ -1118,6 +1225,13 @@ app.get('/api/projects/:id/tasks', requireUser, async (req: AuthedRequest, res) 
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
   const tasks = await prisma.task.findMany({
     where: { projectId: project.id },
+    include: {
+      dependsOn: {
+        include: {
+          dependsOn: { select: { id: true, title: true, status: true, order: true } },
+        },
+      },
+    },
     orderBy: { order: 'asc' },
   });
   res.json({ tasks });

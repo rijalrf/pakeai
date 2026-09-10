@@ -9,10 +9,24 @@ import { Loader2, ArrowRight, RefreshCw } from 'lucide-react';
 
 type Task = {
   id: string;
+  order?: number;
   title: string;
   description?: string;
   status: 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED';
   layer: string;
+  aiContext?: {
+    taskId?: string;
+    requirement_ids?: string[];
+    depends_on?: string[];
+  };
+  dependsOn?: Array<{
+    dependsOn: {
+      id: string;
+      title: string;
+      status: string;
+      order: number;
+    };
+  }>;
 };
 
 export function BoardPage() {
@@ -169,21 +183,51 @@ export function BoardPage() {
                 </Badge>
               </CardHeader>
               <CardContent className="space-y-3">
-                {tasks.filter((t) => t.status === col.status).map((task) => (
-                  <Card key={task.id} className="cursor-pointer hover:shadow-md transition-shadow">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">{task.title}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {task.description && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>
-                      )}
-                      <Badge variant="outline" className="mt-2 text-xs">
-                        {task.layer}
-                      </Badge>
-                    </CardContent>
-                  </Card>
-                ))}
+                {tasks.filter((t) => t.status === col.status).map((task) => {
+                  const pendingDeps = (task.dependsOn ?? []).filter((d) => d.dependsOn.status !== 'DONE');
+                  const isBlocked = pendingDeps.length > 0;
+                  const taskIdLabel = task.aiContext?.taskId || (task.order ? `#${task.order}` : undefined);
+
+                  return (
+                    <Card key={task.id} className="cursor-pointer hover:shadow-md transition-shadow">
+                      <CardHeader className="pb-1.5 pt-3 px-3">
+                        <div className="flex items-center justify-between gap-1.5 mb-1">
+                          {taskIdLabel && (
+                            <span className="font-mono text-[10px] text-muted-foreground font-semibold">
+                              {taskIdLabel}
+                            </span>
+                          )}
+                          {task.aiContext?.requirement_ids && task.aiContext.requirement_ids.length > 0 && (
+                            <span className="font-mono text-[10px] text-primary">
+                              {task.aiContext.requirement_ids.join(', ')}
+                            </span>
+                          )}
+                        </div>
+                        <CardTitle className="text-xs font-semibold leading-snug">{task.title}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-3 pb-3 pt-0">
+                        {task.description && (
+                          <p className="text-[11px] text-muted-foreground line-clamp-2 mt-1">{task.description}</p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                            {task.layer}
+                          </Badge>
+                          {col.status === 'TODO' && isBlocked && (
+                            <Badge variant="warning" className="text-[10px] px-1.5 py-0">
+                              Tunggu #{pendingDeps.map((d) => d.dependsOn.order).join(', ')}
+                            </Badge>
+                          )}
+                          {col.status === 'TODO' && !isBlocked && (task.dependsOn ?? []).length > 0 && (
+                            <Badge variant="success" className="text-[10px] px-1.5 py-0">
+                              Siap
+                            </Badge>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
                 {tasks.filter((t) => t.status === col.status).length === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-4 italic">
                     Kosong
