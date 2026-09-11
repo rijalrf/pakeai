@@ -1,8 +1,61 @@
-# AGENTS.md — pakeai (refactored)
+# AGENTS.md — pakeai
 
-Monorepo AI Planner hasil refactor. Stack final: Vite+React (FE), Express+Prisma+Better Auth (BE), `pakeai` CLI (agent loop driver). Lihat [README.md](README.md) untuk quick start.
+## Apa Itu pakeai
 
-## Struktur
+pakeai adalah **AI Software Factory** — platform SaaS yang mengubah ide aplikasi menjadi project siap eksekusi secara otomatis. User mendeskripsikan ide, lalu AI memandu melalui wizard bertahap: wawancara kebutuhan, pemilihan tech stack, pembuatan dokumen bisnis (BRD), perancangan arsitektur, dan pemecahan menjadi atomic tasks. Hasil akhirnya: task-task granular dengan bounded context ketat yang dieksekusi oleh AI coding agent di komputer user via CLI `pakeai`.
+
+**Target pengguna**: developer yang ingin mempercepat fase planning dan bootstrapping project baru menggunakan AI.
+
+**Masalah yang diselesaikan**: gap antara ide mentah dan kode — biasanya butuh manual planning, BRD writing, task breakdown. pakeai mengotomasi seluruh pipeline ini.
+
+## Alur Wizard (Tahap Sekuensial)
+
+Setiap project melewati 8 tahap berurutan. Tahap yang sudah dilewati terkunci read-only (HTTP 403 via `isStageLocked`).
+
+| # | Tahap | Halaman | Fungsi |
+|---|-------|---------|--------|
+| 1 | `chat` | `/chat/:sessionId` | Brainstorming ide awal dengan AI. |
+| 2 | `interview` | `/projects/:id/interview` | AI generate pertanyaan discovery. User jawab atau pakai rekomendasi AI. |
+| 3 | `techstack` | `/projects/:id/techstack` | Rekomendasi AI (default, langsung lanjut) atau pilih manual per kategori. |
+| 4 | `brd` | `/projects/:id/brd` | AI generate BRD terstruktur (functional requirements, business rules, constraints). |
+| 5 | `tree` | `/projects/:id/tree` | AI generate hierarki dekomposisi aplikasi (App -> Fitur -> Sub-fitur). |
+| 6 | `board` | `/projects/:id/board` | AI generate atomic tasks dengan bounded context. Kanban board. |
+| 7 | `guide` | `/projects/:id/guide` | Generate Master Prompt + PAT token. User copy ke AI coding agent. |
+| 8 | `done` | - | AI coding agent eksekusi via CLI `pakeai next/start/context/done`. |
+
+## Arsitektur AI Engine (`apps/api/src/lib/ai/`)
+
+| Module | Fungsi |
+|--------|--------|
+| `ai-service.ts` | Client OpenAI SDK. Auto-retry Zod, logging token/latensi ke `AiCallLog`, model routing (`reasoning` vs `cheap`). |
+| `chat.ts` | Orchestrator chat onboarding: reply, finalize, generate interview, recommend answer/techstack, generate tree. |
+| `discovery.ts` | Generator pertanyaan kuesioner kebutuhan. |
+| `brd.ts` | Generator BRD terstruktur dari hasil wawancara. |
+| `roadmap.ts` | Generator pembagian fase dan fitur dari BRD. |
+| `tasks.ts` | Generator atomic tasks dari roadmap dengan bounded context (`files_to_create`, `files_to_modify`, `forbidden`, `validation_commands`). |
+| `ui-spec.ts` | Generator kontrak desain UI/UX dari BRD (layout, components, tokens, states). |
+| `dag-validator.ts` | Validasi DAG task: deteksi siklus, hapus invalid dependency, topological sort. |
+| `schemas.ts` | Kontrak data Zod untuk semua interaksi AI. |
+| `prompts.ts` | Katalog system prompt. |
+
+## Model Data Utama (Prisma)
+
+| Model | Fungsi |
+|-------|--------|
+| `User`, `Session`, `Account` | Autentikasi (Better Auth). |
+| `Project` | Entitas root: nama, deskripsi, ide mentah, `wizardStep`, `uiSpec` JSON. |
+| `Stack` | Tech stack per kategori (frontend, backend, database, deployment). |
+| `DiscoveryQuestion`, `DiscoveryAnswer` | Pertanyaan dan jawaban fase interview. |
+| `Brd` | Dokumen kebutuhan bisnis JSON + versioning. |
+| `RoadmapPhase`, `RoadmapFeature`, `RoadmapDependency` | Graph rencana pengembangan. |
+| `Task`, `TaskDependency` | Atomic task: bounded context JSON, acceptance criteria, layer, relasi DAG. |
+| `TreeNode` | Hierarki dekomposisi project. |
+| `Checkpoint` | Gate review antar layer arsitektur (human-in-the-loop). |
+| `AgentToken`, `AgentTokenScope` | PAT token CLI (hash sha256, multi-project scope). |
+| `AgentSession` | Tracking sesi kerja agent. |
+| `AiCallLog` | Observabilitas: model, tokens, latensi, retry, success. |
+
+## Struktur Monorepo
 
 ```
 .
@@ -10,60 +63,46 @@ Monorepo AI Planner hasil refactor. Stack final: Vite+React (FE), Express+Prisma
 │   ├── api/          # Express + Prisma + Zod + Better Auth (port 6655)
 │   │   ├── prisma/   # schema.prisma + migrations + seed.ts
 │   │   └── src/
-│   │       ├── index.ts
+│   │       ├── index.ts              # semua route (sengaja flat)
 │   │       ├── lib/{prisma,auth,ai/*}.ts
-│   │       ├── middleware/{require-user,require-agent}.ts
-│   │       ├── tools/registry.ts
-│   │       └── routes (semua di index.ts untuk kesederhanaan)
+│   │       ├── middleware/{require-user,require-agent,require-agent-simple}.ts
+│   │       └── tools/registry.ts
 │   └── web/          # Vite + React + Tailwind + shadcn (port 3455)
 │       └── src/
 │           ├── main.tsx, App.tsx
-│           ├── components/{ui,layout,kanban,roadmap,tools}/
-│           ├── lib/{utils,api,auth-client}.ts
-│           └── pages/ (login, register, dashboard, onboarding, projects/*)
-├── packages/cli/     # pakeai (commander) — dipanggil via npx
-│   └── src/{index,config,api-client}.ts
-└── .legacy_archive/  # kode lama (Next.js, server backend.js, lib/ai lama) — untuk rollback
+│           ├── components/{ui,layout,chat,wizard,kanban}/
+│           ├── lib/{utils,http,auth-client}.ts
+│           └── pages/{login,home,profile,chat,projects/*}.tsx
+├── packages/cli/     # pakeai (commander)
+│   └── src/{index,config,api-client,guard}.ts
+├── scripts/          # test-e2e-wizard.ts (E2E integration test)
+└── .legacy_archive/  # kode lama — untuk referensi/rollback
 ```
 
 ## Aturan Penting
 
-- **Port & Runtime**: 3455 (web), 6655 (api). Dijalankan via Docker Compose (`docker compose up -d --build`).
-- **Bahasa**: semua string UI, komentar publik, dan komunikasi ke user dalam Bahasa Indonesia.
+- **Port**: 3455 (web), 6655 (api). Runtime via Docker Compose (`docker compose up -d --build`).
+- **Bahasa**: semua string UI, komentar publik, komunikasi ke user dalam **Bahasa Indonesia**.
 - **Tanpa emoji** di UI/kode/komunikasi. Pakai `lucide-react` icons.
 - **Tanpa mock fallback** di CLI/API. Error AI harus eksplisit (HTTP 502 + pesan).
-- **PAT**: token disimpan sebagai `sha256` di DB. Plaintext hanya dikembalikan SEKALI saat generate.
-- **Isolasi project**: `requireAgent` middleware attach `projectId` ke request. Endpoint agent cek `task.projectId === agent.projectId`.
-- **Akses publik & CLI Remote**: lewat tunnel Cloudflare di `https://pakeai.mrijal.my.id` (ingress: `/api/*` → 6655, sisanya → 3455). Endpoint `GET /api/download/pakeai.tgz` menyediakan tarball CLI resmi. Instalasi di komputer lain: `npm i -g https://pakeai.mrijal.my.id/api/download/pakeai.tgz` lalu set `PAKEAI_API_URL=https://pakeai.mrijal.my.id`.
-- **Proteksi Tahap Wizard (Read-Only Locking)**: urutan tahap `chat` -> `interview` -> `techstack` -> `brd` -> `tree` -> `board` -> `guide` -> `done`. Tahap yang sudah dilewati terkunci secara read-only di UI dan backend (`isStageLocked` mengembalikan HTTP 403 Forbidden).
-- **Alur Tech Stack (2 Card)**: Default opsi "Rekomendasi AI" langsung mengeksekusi rekomendasi, menyimpan ke database, dan mengarahkan ke BRD. Opsi "Pilih Sendiri" membuka form konfigurasi manual per kategori arsitektur.
-- **Layout Header Global**: Sisi kiri berisi logo `pake.ai`, garis pemisah, dan judul halaman + subjudul. Sisi kanan menampilkan nama proyek aktif yang sedang dibuka, toggle tema, dan menu pengguna.
+- **PAT**: disimpan sebagai `sha256` di DB. Plaintext dikembalikan SEKALI saat generate.
+- **Isolasi project**: `requireAgent` middleware attach `projectId`. Agent hanya akses task project sendiri.
+- **Akses publik**: tunnel Cloudflare di `https://pakeai.mrijal.my.id` (ingress `/api/*` -> 6655, sisanya -> 3455).
+- **CLI remote**: `npm i -g https://pakeai.mrijal.my.id/api/download/pakeai.tgz`, set `PAKEAI_API_URL`.
+- **Semua route** dideklarasikan flat di `apps/api/src/index.ts`. Pakai `requireUser` (cookie) atau `requireAgent` (PAT). Validasi body dengan Zod.
+- **Tool registry**: edit `apps/api/src/tools/registry.ts`, otomatis muncul di dashboard via `/api/tools`.
 
-## Tambah Tool Baru
+## CLI Commands (`pakeai`)
 
-Edit `apps/api/src/tools/registry.ts` — tambah entry `{id, name, description, icon, href, status}`. Halaman yang merujuk tools: `apps/web/src/pages/dashboard.tsx` (otomatis via `/api/tools`).
-
-## Tambah Endpoint Baru
-
-`apps/api/src/index.ts` — semua route dideklarasikan di sini (sengaja flat untuk visibilitas). Pakai middleware `requireUser` (cookie session) atau `requireAgent` (PAT). Validasi body dengan Zod.
-
-## Reset DB
-
-```bash
-cd apps/api
-PGPASSWORD=admin123 psql -h localhost -U postgres -c "DROP DATABASE project_ai_planner; CREATE DATABASE project_ai_planner;"
-npx prisma migrate dev --name init
-npx tsx prisma/seed.ts
-```
-
-## Verifikasi
-
-```bash
-# Stack hidup
-curl -s http://localhost:6655/health
-curl -s http://localhost:3455/ | head -c 100
-
-# Loop CLI
-pakeai login <token>
-pakeai next && pakeai start && pakeai context && pakeai done
-```
+| Command | Fungsi |
+|---------|--------|
+| `login <token>` | Simpan PAT, tes koneksi, baca project scope. |
+| `switch [projectId]` | Ganti project aktif tanpa login ulang. |
+| `whoami` | Identitas token dan project aktif. |
+| `next` | Ambil task berikutnya (atau resume `IN_PROGRESS`). |
+| `start [id]` | Tandai task `IN_PROGRESS`. |
+| `context [id]` | Cetak Markdown bounded context (file boleh/larang, AC, DoD). |
+| `done [id]` | Tandai selesai + jalankan guard verifikasi file + `validation_commands`. Flag: `--force`, `--dir`. |
+| `brd` | Cetak BRD project dalam Markdown. |
+| `status` | Diagnostik server, token, task aktif, project. |
+| `logout` | Hapus token lokal. |
