@@ -11,7 +11,7 @@ const RoadmapSchema = z.object({
         order: z.number().int().min(1),
         title: z.string(),
         description: z.string().optional(),
-        layer: z.enum(['DATABASE', 'BACKEND', 'FRONTEND', 'INTEGRATION']),
+        layer: z.enum(['BOOTSTRAP', 'DATABASE', 'BACKEND', 'FRONTEND', 'INTEGRATION']),
         features: z
           .array(
             z.object({
@@ -31,8 +31,15 @@ export type RoadmapData = z.infer<typeof RoadmapSchema>;
 
 export async function generateRoadmapFromBRD(brd: BrdData, opts?: { projectId?: string }): Promise<RoadmapData> {
   const system = `Anda adalah Principal Systems Architect. Pecah BRD menjadi Feature Execution Graph terstruktur.
-Setiap fase mengelompokkan layer delivery (DATABASE, BACKEND, FRONTEND, INTEGRATION).
-Setiap fitur dalam fase wajib memodelkan dependensi logis (dependsOn) ke fitur prasyarat agar eksekusi task otonom berjalan teratur tanpa race conditions atau circular dependency.`;
+Setiap fase mengelompokkan layer delivery secara ketat: BOOTSTRAP -> DATABASE -> BACKEND -> FRONTEND -> INTEGRATION.
+Setiap fitur dalam fase wajib memodelkan dependensi logis (dependsOn) ke fitur prasyarat agar eksekusi task otonom berjalan berurutan tanpa race conditions atau circular dependency.
+
+ATURAN STRUKTUR LAYER:
+1. Fase 1 WAJIB berlayer 'BOOTSTRAP': inisialisasi project, konfigurasi package.json, tsconfig, struktur folder, variabel lingkungan (.env), dan kontrak tipe bersama.
+2. Fase DATABASE: perancangan skema data (Prisma/SQL), migrasi, dan seed data awal. Bergantung pada BOOTSTRAP.
+3. Fase BACKEND: implementasi controller/route API sesuai spesifikasi BRD. Bergantung pada fitur DATABASE terkait.
+4. Fase FRONTEND: implementasi halaman UI, komponen, dan konsumsi API backend. Bergantung pada fitur BACKEND terkait.
+5. Fase TERAKHIR WAJIB berlayer 'INTEGRATION': mencakup WIRING (menghubungkan FE ke API BE sesungguhnya, BE ke DB) dan smoke test lokal (aplikasi bisa dijalankan end-to-end tanpa error).`;
 
   const user = `BRD:
 ${JSON.stringify(brd, null, 2)}
@@ -44,10 +51,10 @@ Schema JSON:
       "order": number,
       "title": string,
       "description"?: string,
-      "layer": "DATABASE" | "BACKEND" | "FRONTEND" | "INTEGRATION",
+      "layer": "BOOTSTRAP" | "DATABASE" | "BACKEND" | "FRONTEND" | "INTEGRATION",
       "features": [
         {
-          "id": string (slug unik, mis. "auth-db", "product-api", "cart-ui"),
+          "id": string (slug unik, mis. "bootstrap-init", "auth-db", "product-api", "cart-ui", "e2e-wiring"),
           "title": string,
           "description"?: string,
           "dependsOn": string[] (array slug fitur prasyarat yang harus selesai lebih dulu)
@@ -58,11 +65,14 @@ Schema JSON:
 }
 
 PRINSIP EXECUTION GRAPH:
-1. Fitur layer BACKEND umumnya bergantung (dependsOn) pada fitur DATABASE terkait.
-2. Fitur layer FRONTEND umumnya bergantung pada fitur BACKEND terkait.
-3. Fitur INTEGRATION bergantung pada fitur FRONTEND & BACKEND inti.
-4. Jangan membuat siklus ketergantungan (circular dependency).
-5. Minimal 3 fase, total fitur 5-15. Kembalikan HANYA JSON.`;
+1. Fase BOOTSTRAP WAJIB menjadi fase pertama (order: 1) tanpa dependensi (dependsOn: []).
+2. Fitur layer DATABASE bergantung pada fitur BOOTSTRAP.
+3. Fitur layer BACKEND umumnya bergantung (dependsOn) pada fitur DATABASE terkait.
+4. Fitur layer FRONTEND umumnya bergantung pada fitur BACKEND terkait.
+5. Fitur INTEGRATION bergantung pada fitur FRONTEND & BACKEND inti.
+6. INTEGRATION WAJIB mencakup: task wiring integrasi nyata (bukan hanya test setup), dan smoke test "npm run dev berhasil dan halaman utama dapat diakses".
+7. Jangan membuat siklus ketergantungan (circular dependency).
+8. Minimal 4-5 fase, total fitur 5-15. Kembalikan HANYA JSON.`;
 
   return generateJson({
     system,

@@ -62,6 +62,7 @@ export type ContextResp = {
   ok: true;
   taskId: string;
   markdown: string;
+  apiContracts?: unknown[];
   guard?: {
     layer?: string;
     forbidden?: string[];
@@ -96,8 +97,11 @@ export const api = {
   context(cfg: Config, id: string) {
     return request<ContextResp>(cfg, `/api/agent/tasks/${id}/context`);
   },
-  done(cfg: Config, id: string) {
-    return request<StatusResp>(cfg, `/api/agent/tasks/${id}/complete`, { method: 'POST' });
+  done(cfg: Config, id: string, meta?: { outputSummary?: string; apiContracts?: unknown[] }) {
+    return request<StatusResp>(cfg, `/api/agent/tasks/${id}/complete`, {
+      method: 'POST',
+      body: meta ? JSON.stringify(meta) : undefined,
+    });
   },
   fail(cfg: Config, id: string, failure: unknown) {
     return request<{ ok: true; taskId: string; status: string }>(cfg, `/api/agent/tasks/${id}/fail`, {

@@ -206,6 +206,8 @@ model Task {
   order       Int      @default(0)
   // aiContext: { files_to_create: string[], files_to_modify: string[], forbidden: string[] }
   aiContext     Json     @default("{}")
+  apiContracts  Json     @default("[]")
+  outputSummary String?
   acceptanceCriteria Json @default("[]")
   blockedReason String?
   startedAt   DateTime?

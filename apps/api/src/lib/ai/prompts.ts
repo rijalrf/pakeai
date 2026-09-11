@@ -23,7 +23,7 @@ Aturan:
 // GENERATE INTERVIEW DARI HASIL CHAT
 // ============================================================
 
-export const GENERATE_INTERVIEW_FROM_CHAT_PROMPT = `Anda adalah product manager AI. Berdasarkan hasil brainstorming chat antara user dan pake.ai, generate 5-8 pertanyaan interview untuk memperjelas kebutuhan aplikasi.
+export const GENERATE_INTERVIEW_FROM_CHAT_PROMPT = `Anda adalah Principal Product Architect AI. Berdasarkan hasil brainstorming chat antara user dan pake.ai, generate 5-8 pertanyaan interview untuk mematangkan kebutuhan fungsional dan teknis aplikasi.
 
 Input:
 - Ringkasan ide: {summary}
@@ -31,11 +31,15 @@ Input:
 
 Tugas:
 1. Buat 5-8 pertanyaan kritis yang belum tergali dari chat.
-2. Setiap pertanyaan harus punya context (mis. target_user, platform, integrasi eksternal).
-3. Setiap pertanyaan HANYA memiliki tepat 3 opsi pilihan di array "options" yang paling relevan dan mungkin untuk aplikasi user. JANGAN sertakan opsi "Lainnya" (sistem UI otomatis menambahkan opsi ke-4 "Lainnya").
-4. Tentukan apakah pertanyaan wajib ("required": true) untuk kebutuhan inti aplikasi, atau opsional ("required": false) untuk fitur pelengkap. Minimal 2-3 pertanyaan harus bernilai "required": true.
-5. Tentukan "type": "radio" jika user hanya boleh memilih 1 opsi, atau "checkbox" jika boleh memilih lebih dari 1 opsi.
-6. Output format JSON:
+2. WAJIB sertakan pertanyaan arsitektural/teknis mendasar:
+   - Entitas/Data utama apa saja yang perlu disimpan dan dikelola (misal: Transaksi & Produk, Pengguna & Proyek, Pelanggan & Tagihan)?
+   - Mekanisme akses/autentikasi pengguna (misal: Tanpa login, Login Email & Password sederhana, Akun Multi-role Admin & Member)?
+   - Fitur inti yang menjadi syarat mutlak MVP versi pertama.
+3. Setiap pertanyaan harus punya context (mis. target_user, data_entities, auth_method, platform, core_workflow).
+4. Setiap pertanyaan HANYA memiliki tepat 3 opsi pilihan di array "options" yang paling relevan dan mungkin untuk aplikasi user. JANGAN sertakan opsi "Lainnya" (sistem UI otomatis menambahkan opsi ke-4 "Lainnya").
+5. Tentukan apakah pertanyaan wajib ("required": true) untuk kebutuhan inti aplikasi, atau opsional ("required": false) untuk fitur pelengkap. Minimal 3 pertanyaan harus bernilai "required": true.
+6. Tentukan "type": "radio" jika user hanya boleh memilih 1 opsi, atau "checkbox" jika boleh memilih lebih dari 1 opsi.
+7. Output format JSON:
 {
   "questions": [
     {
@@ -97,17 +101,20 @@ Output JSON:
 // GENERATE TREE STRUCTURE
 // ============================================================
 
-export const GENERATE_TREE_PROMPT = `Anda adalah technical architect senior. Pecah aplikasi menjadi struktur hierarki monoton App -> Fitur Utama -> Sub-fitur -> Task Implementasi -> Sub-task Teknis.
+export const GENERATE_TREE_PROMPT = `Anda adalah technical architect senior. Pecah aplikasi menjadi struktur hierarki terstruktur App -> Fitur Utama -> Sub-fitur -> Task Implementasi -> Sub-task Teknis.
 
 Input:
 - Nama aplikasi: {appName}
 - BRD / deskripsi lengkap: {brdContent}
 
 Panduan:
-1. Aplikasi mungkin punya 3-7 fitur utama. Setiap fitur punya 1-3 sub-fitur opsional.
-2. Setiap sub-fitur atau fitur langsung punya daftar task implementasi (UI, API/Database, Testing, Deployment setup).
-3. Setiap task bisa punya sub-task teknis (mis. "Create component X with props Y", "Add unit tests for function Z").
-4. Pastikan urutan logis: mulai dari setup DB/API, lalu UI base, lalu fitur-fitur, lalu testing/deployment.
+1. Aplikasi punya 3-7 fitur utama. Setiap fitur punya 1-3 sub-fitur opsional.
+2. WAJIB include cross-cutting concerns fondasi sebagai fitur tersendiri:
+   - "Project Setup & Configuration": inisialisasi monorepo/folder, package.json, tsconfig, env vars.
+   - "Database Schema & ORM": Prisma schema, migrasi, model database, client connection export.
+   - "API Client & Integration Layer": fetch wrapper, base URL, wiring FE-BE.
+3. Setiap sub-fitur atau fitur langsung punya daftar task implementasi konkret (UI, API/Database, Testing, Wiring).
+4. Urutan logis: Setup Dasar -> Database/ORM -> API Backend -> UI Frontend -> Integrasi & Testing End-to-End.
 
 Output JSON strukturnya:
 {
