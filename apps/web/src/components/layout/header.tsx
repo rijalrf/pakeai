@@ -95,7 +95,7 @@ export function Header() {
   const projectName = projectData?.project?.name;
 
   return (
-    <header className="sticky top-0 border-b bg-background/95 backdrop-blur-xs z-50">
+    <header className="border-b bg-background/95 backdrop-blur-xs">
       <div className="px-6 py-2.5 flex items-center justify-between gap-4">
         {/* Kiri: Logo pake.ai + Pemisah + Judul & Subjudul Halaman */}
         <div className="flex items-center gap-3.5 min-w-0">

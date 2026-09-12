@@ -39,12 +39,20 @@ export const ApiEndpointSchema = z.object({
   authRequired: z.boolean().default(false),
 });
 
+export const GherkinScenarioSchema = z.object({
+  title: z.string().optional(),
+  given: z.string(),
+  when: z.string(),
+  then: z.string(),
+});
+
 export const UserStorySchema = z.object({
   id: z.string(), // Format: US-001, US-002, dst.
   persona: z.string(),
   action: z.string(),
   benefit: z.string(),
   acceptanceCriteria: z.array(z.string()).default([]),
+  gherkin: z.array(GherkinScenarioSchema).default([]),
 });
 
 export const EdgeCaseSchema = z.object({
@@ -117,7 +125,15 @@ Schema JSON yang WAJIB diikuti:
       "persona": "Sebagai Pengguna Baru",
       "action": "saya ingin mendaftar akun dengan verifikasi email",
       "benefit": "supaya data dan aktivitas saya tersimpan aman",
-      "acceptanceCriteria": ["Form validasi email unik", "Kirim link verifikasi", "Akun aktif setelah klik"]
+      "acceptanceCriteria": ["Form validasi email unik", "Kirim link verifikasi", "Akun aktif setelah klik"],
+      "gherkin": [
+        {
+          "title": "Registrasi akun baru dengan email valid",
+          "given": "pengguna berada di halaman registrasi dengan form kosong",
+          "when": "pengguna mengisi email valid yang belum terdaftar dan password kuat lalu submit",
+          "then": "sistem mengirim tautan verifikasi ke email dan status akun diset PENDING"
+        }
+      ]
     }
   ],
   "functionalRequirements": [
@@ -184,7 +200,7 @@ Schema JSON yang WAJIB diikuti:
 
 ATURAN KRITIS:
 1. Pastikan ID requirement berurutan (FR-001, FR-002...), aturan bisnis (BR-001, BR-002...), user stories (US-001, US-002...), dan edge cases (EC-001, EC-002...).
-2. Minimal buat 3-5 userStories yang mencakup seluruh aktor utama dalam format Sebagai... saya ingin... supaya...
+2. Minimal buat 3-5 userStories yang mencakup seluruh aktor utama dalam format Sebagai... saya ingin... supaya... Setiap userStory WAJIB menyertakan minimal 1-2 skenario Gherkin terstruktur (title, given, when, then).
 3. Minimal buat 3 edgeCases kritis yang mengantisipasi kegagalan sistem atau input tak terduga.
 4. Minimal buat 2-4 successMetrics terukur (waktu proses, tingkat error, atau performa).
 5. Minimal buat 2-5 dataModels yang mencakup seluruh domain problem.

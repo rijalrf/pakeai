@@ -23,6 +23,7 @@ import {
 import { api } from '@/lib/http';
 import { cn } from '@/lib/utils';
 import { isStageLocked } from '@/lib/constants';
+import { useWizardNav } from '@/components/layout/wizard-nav';
 
 type TreeNode = {
   id: string;
@@ -270,6 +271,41 @@ export function TreePage() {
     }
   };
 
+  const handleBackToBrd = async () => {
+    if (!projectId) return;
+    try {
+      await api(`/api/projects/${projectId}/wizard-step`, {
+        method: 'POST',
+        body: JSON.stringify({ step: 'brd' }),
+      });
+      navigate(`/projects/${projectId}/brd`);
+    } catch {
+      navigate(`/projects/${projectId}/brd`);
+    }
+  };
+
+  useWizardNav({
+    back: {
+      label: 'Kembali ke BRD',
+      onClick: handleBackToBrd,
+    },
+    extra: (
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => navigate(`/projects/${projectId}/ui-spec`)}
+        className="gap-1.5 text-xs h-8 font-medium cursor-pointer"
+      >
+        <Palette className="h-3.5 w-3.5 text-primary" />
+        <span>Review UI Spec</span>
+      </Button>
+    ),
+    next: {
+      label: 'Lanjut ke Board Task',
+      onClick: () => navigate(`/projects/${projectId}/board`),
+    },
+  });
+
   if (loading || generating) {
     return (
       <div className="w-full space-y-6">
@@ -351,31 +387,12 @@ export function TreePage() {
               variant="outline"
               onClick={generateTree}
               disabled={generating}
-              className="gap-1.5 text-xs h-9"
+              className="gap-1.5 text-xs h-8"
             >
               <Sparkles className="h-3.5 w-3.5 text-primary" />
               <span>Generate Ulang</span>
             </Button>
           )}
-
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => navigate(`/projects/${projectId}/ui-spec`)}
-            className="gap-1.5 text-xs h-9 font-medium"
-          >
-            <Palette className="h-3.5 w-3.5 text-primary" />
-            <span>Review UI Spec</span>
-          </Button>
-
-          <Button
-            size="sm"
-            onClick={() => navigate(`/projects/${projectId}/board`)}
-            className="gap-2 text-xs h-9 font-medium"
-          >
-            <span>Lanjut ke Board Task</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
         </div>
       </div>
 
