@@ -436,9 +436,21 @@ app.post('/api/agent/tasks/:id/complete', requireAgent, async (req: AgentRequest
   const project = await prisma.project.findUnique({ where: { id: req.agent.projectId } });
   const nextStatus = project?.reviewFlow ? 'REVIEW' : 'DONE';
 
+  const body = req.body ?? {};
+  const updateData: any = {
+    status: nextStatus,
+    completedAt: nextStatus === 'DONE' ? new Date() : null,
+  };
+  if (body.outputSummary && typeof body.outputSummary === 'string') {
+    updateData.outputSummary = body.outputSummary.slice(0, 4000);
+  }
+  if (Array.isArray(body.apiContracts) && body.apiContracts.length > 0) {
+    updateData.apiContracts = body.apiContracts;
+  }
+
   const updated = await prisma.task.update({
     where: { id: task.id },
-    data: { status: nextStatus, completedAt: nextStatus === 'DONE' ? new Date() : null },
+    data: updateData,
   });
 
   // Cek apakah layer sudah habis -> buat checkpoint PENDING bila perlu.
@@ -573,7 +585,24 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
   const brd = task.project.brd?.content as {
     functionalRequirements?: Array<{ id: string; title: string; description: string }>;
     businessRules?: Array<{ id: string; description: string }>;
+    dataModels?: Array<{ name: string; description?: string; fields: Array<{ name: string; type: string; required?: boolean }>; relations?: string[] }>;
+    apiEndpoints?: Array<{ method: string; path: string; description: string; requestBody?: string; responseBody?: string }>;
   } | undefined;
+
+  // Query completed tasks di project yang sama untuk context enrichment
+  const completedTasks = await prisma.task.findMany({
+    where: { projectId: req.agent.projectId, status: 'DONE' },
+    select: {
+      id: true,
+      title: true,
+      layer: true,
+      order: true,
+      apiContracts: true,
+      outputSummary: true,
+      aiContext: true,
+    },
+    orderBy: { order: 'asc' },
+  });
 
   // Filter requirement yang bersangkutan untuk hemat token dan cegah distorsi context
   const reqIds = new Set(ctx.requirement_ids ?? []);
@@ -593,6 +622,70 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
     mdParts.push(`**Prasyarat (Depends On)**: ${depsText}`);
   } else if (ctx.depends_on && ctx.depends_on.length > 0) {
     mdParts.push(`**Prasyarat (Depends On)**: ${ctx.depends_on.join(', ')}`);
+  }
+
+  // Ringkasan output task prasyarat jika ada
+  const prereqIds = new Set(task.dependsOn?.map((d) => d.dependsOnId) ?? []);
+  const prereqWithSummary = completedTasks.filter((t) => prereqIds.has(t.id) && t.outputSummary);
+  if (prereqWithSummary.length > 0) {
+    mdParts.push(``, `#### Ringkasan Output Task Prasyarat`);
+    for (const p of prereqWithSummary) {
+      mdParts.push(`- **[#${p.order}] ${p.title}** (${p.layer}): ${p.outputSummary}`);
+    }
+  }
+
+  // Struktur file yang sudah dibuat oleh task sebelumnya
+  const allCreatedFiles = completedTasks.flatMap((t) => {
+    const c = (t.aiContext ?? {}) as { files_to_create?: string[] };
+    return c.files_to_create ?? [];
+  });
+  if (allCreatedFiles.length > 0) {
+    const uniqueFiles = [...new Set(allCreatedFiles)].slice(0, 30);
+    mdParts.push(``, `#### Struktur File Proyek Saat Ini (Dibuat oleh task sebelumnya)`, '```');
+    for (const f of uniqueFiles) {
+      mdParts.push(f);
+    }
+    mdParts.push('```');
+  }
+
+  // API Registry dari backend tasks yang sudah selesai atau dari spesifikasi BRD
+  const completedContracts = completedTasks
+    .filter((t) => t.layer === 'BACKEND' || t.layer === 'INTEGRATION')
+    .flatMap((t) => {
+      const contracts = t.apiContracts as Array<{
+        method?: string;
+        path?: string;
+        description?: string;
+        requestBody?: string;
+        responseBody?: string;
+      }>;
+      return Array.isArray(contracts) ? contracts : [];
+    })
+    .filter((c) => c.method && c.path);
+
+  const displayEndpoints = completedContracts.length > 0
+    ? completedContracts
+    : (brd?.apiEndpoints ?? []);
+
+  if (displayEndpoints.length > 0) {
+    mdParts.push(``, `#### API Endpoints Tersedia (Kontrak Integrasi)`);
+    for (const c of displayEndpoints.slice(0, 20)) {
+      mdParts.push(`- \`${c.method} ${c.path}\`${c.description ? ` — ${c.description}` : ''}`);
+      if (c.requestBody) mdParts.push(`  - Request Body: \`${c.requestBody}\``);
+      if (c.responseBody) mdParts.push(`  - Response Body: \`${c.responseBody}\``);
+    }
+  }
+
+  // Referensi Model Data / Schema untuk task DATABASE dan BACKEND
+  if (brd?.dataModels && brd.dataModels.length > 0) {
+    mdParts.push(``, `#### Kontrak Model Data (Database Schema)`);
+    for (const m of brd.dataModels.slice(0, 8)) {
+      const fieldsStr = m.fields.map((f) => `${f.name}: ${f.type}${f.required === false ? '?' : ''}`).join(', ');
+      mdParts.push(`- **${m.name}**${m.description ? ` (${m.description})` : ''}: \`{ ${fieldsStr} }\``);
+      if (m.relations?.length) {
+        mdParts.push(`  - Relasi: ${m.relations.join(', ')}`);
+      }
+    }
   }
 
   mdParts.push(
@@ -716,6 +809,7 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
     ok: true,
     taskId: task.id,
     markdown: mdParts.join('\n'),
+    apiContracts: displayEndpoints,
     guard: {
       layer: task.layer,
       forbidden: ctx.forbidden ?? [],
@@ -1050,11 +1144,14 @@ app.post('/api/discovery/:qid/answer', requireUser, async (req: AuthedRequest, r
   res.status(201).json({ answer: ans });
 });
 
-// Step 2: generate BRD dari Q&A + ide.
+// Step 2: generate BRD dari Q&A + ide + tech stack + chat history.
 app.post('/api/projects/:id/brd/generate', requireUser, async (req: AuthedRequest, res) => {
   const project = await prisma.project.findFirst({
     where: { id: req.params.id, userId: req.userId },
-    include: { questions: { include: { answers: true } } },
+    include: {
+      questions: { include: { answers: true } },
+      stacks: true,
+    },
   });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
   const qa = project.questions
@@ -1067,8 +1164,27 @@ app.post('/api/projects/:id/brd/generate', requireUser, async (req: AuthedReques
   if (existing && isStageLocked(project.wizardStep, 'brd')) {
     return res.status(403).json({ error: 'Dokumen BRD telah selesai dan terkunci (Read-Only).' });
   }
+
+  const chatSession = await prisma.chatSession.findFirst({
+    where: { projectId: project.id },
+    include: { messages: { orderBy: { createdAt: 'asc' } } },
+  });
+  const chatHistory = chatSession?.messages?.length
+    ? chatSession.messages.map((m) => `${m.role}: ${m.content}`).join('\n')
+    : undefined;
+
+  const techStackList = project.stacks.length > 0
+    ? project.stacks.map((s) => `${s.category}: ${s.name}${s.version ? ` (${s.version})` : ''}`)
+    : undefined;
+
   try {
-    const brd = await generateBRDFromDiscovery({ idea: project.idea, questions: qa, projectId: project.id });
+    const brd = await generateBRDFromDiscovery({
+      idea: project.idea,
+      questions: qa,
+      projectId: project.id,
+      techStack: techStackList,
+      chatHistory,
+    });
     if (existing) {
       const updated = await prisma.brd.update({
         where: { projectId: project.id },
@@ -1275,7 +1391,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
     order: p.order,
     title: p.title,
     description: p.description ?? undefined,
-    layer: p.layer as 'DATABASE' | 'BACKEND' | 'FRONTEND' | 'INTEGRATION',
+    layer: p.layer as 'BOOTSTRAP' | 'DATABASE' | 'BACKEND' | 'FRONTEND' | 'INTEGRATION',
     features: featuresForAI
       .filter((f) => project.roadmap.find((rp) => rp.features.find((rf) => featureIdMap.get(rf.id) === f.id))?.id === p.id)
       .map((f) => ({ id: f.id, title: f.title, description: f.description, dependsOn: f.dependsOn })),
@@ -1285,6 +1401,9 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
     const brdData = project.brd?.content as {
       functionalRequirements?: Array<{ id: string; title: string; description: string; priority?: string }>;
       businessRules?: Array<{ id: string; description: string }>;
+      dataModels?: Array<{ name: string; description?: string; fields: Array<{ name: string; type: string; required?: boolean }>; relations?: string[] }>;
+      apiEndpoints?: Array<{ method: string; path: string; description: string; requestBody?: string; responseBody?: string; authRequired?: boolean }>;
+      techRequirements?: string[];
     } | undefined;
 
     // Dedicated UX/UI Specification Agent (Bab 14)
@@ -1351,6 +1470,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
           layer: t.layer,
           status: 'TODO',
           order: currentOrder,
+          apiContracts: (t as any).apiContracts ?? [],
           aiContext: {
             taskId: t.taskId,
             requirement_ids: t.requirement_ids,

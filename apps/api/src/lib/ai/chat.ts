@@ -67,7 +67,21 @@ export async function finalizeChatSession(sessionId: string, userId: string): Pr
 
   const chatText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
   const finalization = await generateJson({
-    system: `Anda adalah asisten pembuat nama project yang menarik.\n\nInput: hasil chat brainstorming user.\nOutput JSON: { "name": "Nama Project Menarik", "summary": "Ringkasan 3-4 kalimat tentang ide aplikasi" }.`,
+    system: `Anda adalah Principal Product Architect AI.
+Input: Riwayat percakapan chat brainstorming ide aplikasi user.
+Tugas:
+1. Hasilkan nama project yang menarik, ringkas, dan relevan ("name").
+2. Buat ringkasan komprehensif 1-2 paragraf padat ("summary") yang merangkum:
+   - Masalah spesifik yang ingin dipecahkan
+   - Target pengguna utama
+   - Fitur-fitur inti aplikasi (MVP)
+   - Entitas/data utama yang dikelola
+   - Alur kerja utama aplikasi dari sudut pandang pengguna
+Output JSON WAJIB:
+{
+  "name": "Nama Project",
+  "summary": "Ringkasan komprehensif mencakup masalah, pengguna, fitur utama, entitas data, dan alur aplikasi."
+}`,
     user: chatText,
     schema: z.object({ name: z.string(), summary: z.string() }),
     maxRetries: 2,

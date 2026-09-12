@@ -12,7 +12,7 @@ const TasksSchema = z.object({
         taskId: z.string().optional(),
         title: z.string(),
         description: z.string().optional(),
-        layer: z.enum(['DATABASE', 'BACKEND', 'FRONTEND', 'INTEGRATION']),
+        layer: z.enum(['BOOTSTRAP', 'DATABASE', 'BACKEND', 'FRONTEND', 'INTEGRATION']),
         featureId: z.string(),
         order: z.number().int().min(1),
         requirement_ids: z.array(z.string()).default([]),
@@ -26,6 +26,17 @@ const TasksSchema = z.object({
         validation_commands: z.array(z.string()).default(['npm run build']),
         definition_of_done: z.array(z.string()).default([]),
         out_of_scope: z.array(z.string()).default([]),
+        apiContracts: z
+          .array(
+            z.object({
+              method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+              path: z.string(),
+              description: z.string().optional(),
+              requestBody: z.string().optional(),
+              responseBody: z.string().optional(),
+            }),
+          )
+          .default([]),
       }),
     )
     .min(3),
@@ -40,19 +51,28 @@ export async function generateTasksFromRoadmap(args: {
   brd?: {
     functionalRequirements?: Array<{ id: string; title: string; description: string; priority?: string }>;
     businessRules?: Array<{ id: string; description: string }>;
+    dataModels?: Array<{ name: string; description?: string; fields: Array<{ name: string; type: string; required?: boolean }>; relations?: string[] }>;
+    apiEndpoints?: Array<{ method: string; path: string; description: string; requestBody?: string; responseBody?: string; authRequired?: boolean }>;
+    techRequirements?: string[];
   };
   uiSpec?: UiSpecData | null;
   projectId?: string;
 }): Promise<TaskGen[]> {
-  const system = `Anda adalah Principal AI Task Architect. Tugas Anda adalah memecah fitur aplikasi menjadi atomic tasks terstruktur yang dirancang agar DAPAT DIEKSEKUSI DENGAN SUKSES OLEH LOW-COST AI CODING AGENT ATAU JUNIOR DEVELOPER.
+  const system = `Anda adalah Principal AI Task Architect. Tugas Anda adalah memecah fitur aplikasi menjadi atomic tasks terstruktur yang dirancang agar DAPAT DIEKSEKUSI DENGAN SUKSES OLEH LOW-COST AI CODING AGENT ATAU JUNIOR DEVELOPER TANPA HALUSINASI DAN MENGHASILKAN APLIKASI YANG BISA DIJALANKAN 100% END-TO-END.
 
 PRINSIP ATOMIC & LOW-COST COMPATIBILITY:
 1. Satu task fokus pada 1 tanggung jawab spesifik (Single Responsibility Principle).
-2. Setiap task wajib memiliki Bounded Context ketat: file yang boleh dibuat, file yang boleh dimodifikasi, dan file yang DILARANG disentuh.
-3. Berikan 'implementation_steps' yang konkret (langkah 1, 2, 3 langkah demi langkah) agar model tidak berhalusinasi.
+2. Setiap task wajib memiliki Bounded Context ketat: file yang boleh dibuat, file yang boleh dimodifikasi, file yang boleh dibaca sebagai referensi (files_readonly), dan file yang DILARANG disentuh (forbidden).
+3. Berikan 'implementation_steps' yang konkret dan instruktif. WAJIB sertakan potongan kode contoh konkret (code snippets) jika membuat konfigurasi, skema, atau route agar agent tidak menebak-nebak nama field/fungsi.
 4. Kaitkan setiap task dengan ID kebutuhan ('requirement_ids', misal FR-001, BR-001).
-5. Berikan 'validation_commands' otomatis (misal: "npm test", "npm run typecheck") yang bisa dijalankan coding agent untuk membuktikan keberhasilan task.
-6. Pisahkan 'acceptanceCriteria' (kondisi lulus fitur) dari 'definition_of_done' (kondisi siap ditutup) dan 'out_of_scope' (hal yang dilarang dilakukan di task ini).`;
+5. Berikan 'validation_commands' otomatis (misal: "npm test", "npm run typecheck", "npm run build") yang bisa dijalankan coding agent untuk membuktikan keberhasilan task.
+6. Pisahkan 'acceptanceCriteria' (kondisi lulus fitur) dari 'definition_of_done' (kondisi siap ditutup) dan 'out_of_scope' (hal yang dilarang dilakukan di task ini).
+7. Setiap task layer BACKEND yang membuat API endpoint WAJIB mendeklarasikan 'apiContracts' lengkap dengan method, path, requestBody, dan responseBody type signature.
+8. WAJIB ada task BOOTSTRAP di awal (order: 1): "Project Initialization & Shared Configuration" yang menyiapkan package.json, tsconfig, folder structure, .env.example, dan shared types.
+9. WAJIB ada WIRING tasks di transisi antar layer:
+   - Transisi DATABASE -> BACKEND: "Setup Prisma Client Connection & Shared Client Export" agar controller API bisa langsung mengimpor prisma instance.
+   - Transisi BACKEND -> FRONTEND: "Create API Client Wrapper & Environment Variables" (membuat fetch wrapper di apps/web/src/lib/api.ts dengan VITE_API_URL).
+   - Di layer INTEGRATION: "Wire Frontend Pages to Real Backend Endpoints" (menghubungkan setiap halaman React ke endpoint backend asli) DAN "E2E Smoke Test Verification" (menjalankan aplikasi dan memastikan halaman utama dapat dibuka).`;
 
   const reqText = args.brd?.functionalRequirements?.length
     ? `\nKEBUTUHAN FUNGSIONAL TERSEDIA:\n${args.brd.functionalRequirements.map((r) => `- [${r.id}] ${r.title}: ${r.description}`).join('\n')}`
@@ -60,6 +80,14 @@ PRINSIP ATOMIC & LOW-COST COMPATIBILITY:
 
   const rulesText = args.brd?.businessRules?.length
     ? `\nATURAN BISNIS TERSEDIA:\n${args.brd.businessRules.map((b) => `- [${b.id}] ${b.description}`).join('\n')}`
+    : '';
+
+  const dataModelsText = args.brd?.dataModels?.length
+    ? `\nMODEL DATA (DATABASE CONTRACT):\n${JSON.stringify(args.brd.dataModels, null, 2)}`
+    : '';
+
+  const apiEndpointsText = args.brd?.apiEndpoints?.length
+    ? `\nSPESIFIKASI ENDPOINT API TERSEDIA:\n${JSON.stringify(args.brd.apiEndpoints, null, 2)}`
     : '';
 
   const uiSpecText = args.uiSpec
@@ -70,6 +98,8 @@ PRINSIP ATOMIC & LOW-COST COMPATIBILITY:
 ${JSON.stringify(args.roadmap, null, 2)}
 ${reqText}
 ${rulesText}
+${dataModelsText}
+${apiEndpointsText}
 ${uiSpecText}
 
 NAMA PROJECT: ${args.projectName}
@@ -81,26 +111,25 @@ Schema JSON (WAJIB):
       "taskId": "TASK-001",
       "title": "Judul task singkat & instruktif",
       "description": "Deskripsi lingkup teknis task",
-      "layer": "DATABASE" | "BACKEND" | "FRONTEND" | "INTEGRATION",
+      "layer": "BOOTSTRAP" | "DATABASE" | "BACKEND" | "FRONTEND" | "INTEGRATION",
       "featureId": string (id fitur asal),
       "order": number,
       "requirement_ids": ["FR-001", "BR-001"],
-      "depends_on": ["ID task atau fitur sebelumnya yang menjadi prasyarat"],
+      "depends_on": ["ID task sebelumnya yang menjadi prasyarat"],
       "files_to_create": ["path/file.ts"],
       "files_to_modify": ["path/existing.ts"],
-      "files_readonly": ["path/schema.prisma"],
+      "files_readonly": ["apps/api/prisma/schema.prisma"],
       "forbidden": ["apps/web/**"],
       "implementation_steps": [
-        "1. Buat model data di schema",
-        "2. Jalankan migrasi",
-        "3. Verifikasi kueri"
+        "1. Langkah satu disertai cuplikan kode contoh konkret",
+        "2. Langkah dua verifikasi"
       ],
       "acceptanceCriteria": [
         "Kriteria penerimaan measurable dan testable"
       ],
       "validation_commands": [
-        "npm test",
-        "npm run typecheck"
+        "npm run typecheck",
+        "npm run build"
       ],
       "definition_of_done": [
         "Implementasi selesai",
@@ -108,18 +137,28 @@ Schema JSON (WAJIB):
         "Tidak ada file forbidden berubah"
       ],
       "out_of_scope": [
-        "Tidak menyentuh UI frontend",
-        "Tidak menambahkan authentication baru"
+        "Hal yang dilarang dikerjakan di task ini"
+      ],
+      "apiContracts": [
+        {
+          "method": "POST",
+          "path": "/api/auth/login",
+          "description": "Login pengguna",
+          "requestBody": "{ email: string, password: string }",
+          "responseBody": "{ token: string, user: { id: string, email: string } }"
+        }
       ]
     }
   ]
 }
 
 Aturan bounded context:
-- Task layer DATABASE: bebas di folder prisma/ & apps/api/prisma/schema.prisma saja. Gunakan provider "sqlite" secara default (file lokal dev.db) agar aplikasi hasil generate tidak memerlukan instalasi database server eksternal.
-- Task layer BACKEND: bebas di apps/api/src/**, JANGAN sentuh apps/web/** atau prisma schema.
-- Task layer FRONTEND: bebas di apps/web/src/**, JANGAN sentuh apps/api/**.
-- forbidden WAJIB berisi path di luar layer (mis. BACKEND -> ["apps/web/**", "apps/api/prisma/**"]).
+- Task layer BOOTSTRAP: bebas di seluruh project root (package.json, tsconfig.json, .env.example, shared/).
+- Task layer DATABASE: bebas di folder prisma/ & apps/api/prisma/schema.prisma saja. Gunakan provider "sqlite" secara default (file lokal dev.db) agar aplikasi hasil generate zero-config.
+- Task layer BACKEND: bebas di apps/api/src/**. BOLEH BACA (files_readonly: ["apps/api/prisma/schema.prisma"]) untuk import types Prisma. JANGAN MODIFIKASI prisma schema atau apps/web/**.
+- Task layer FRONTEND: bebas di apps/web/src/**. JANGAN sentuh apps/api/** atau prisma schema.
+- Task layer INTEGRATION: bebas di seluruh project untuk wiring koneksi dan testing verifikasi.
+- forbidden WAJIB berisi path di luar layer (kecuali file yang masuk files_readonly).
 
 Aturan taskId dan depends_on (WAJIB KONSISTEN):
 - Gunakan format 'taskId' standar: TASK-001, TASK-002, TASK-003, dst secara berurutan.
@@ -128,19 +167,20 @@ Aturan taskId dan depends_on (WAJIB KONSISTEN):
 Aturan khusus FRONTEND (Design System Contract & UI/UX Specs):
 - Terapkan Design System Contract: mobile-first, clean layout, semantic HTML, dan konsistensi visual.
 - Spacing terstandarisasi: gunakan kelipatan 4px (Tailwind: gap-1, gap-2, p-3, p-4, p-6, space-y-4).
-- Border Radius konsisten: rounded-sm, rounded-md, rounded-lg.
 - Tangani state interaksi secara lengkap pada acceptance criteria: idle, loading (spinner/skeleton), error, dan success.
-- Hindari duplikasi komponen dan hindari icon/elemen dekoratif tanpa fungsi nyata.
+- Halaman UI WAJIB memanggil API Client (bukan hardcoded data mock).
 
 Aturan acceptance criteria (HARUS DIPATUHI):
 - Setiap acceptance criterion HARUS measurable dan testable, bukan subjektif.
-- ❌ SALAH: "Fitur login berhasil"
-- ✅ BENAR: "Akses http://localhost:9999/login dengan kredensial valid menampilkan halaman dashboard home, URL tetap http://localhost:9999/dashboard"
+- BACKEND: "Endpoint [METHOD] [PATH] merespons HTTP status yang sesuai dan format JSON valid sesuai contract".
+- FRONTEND: "Halaman [Nama] memuat dan menampilkan data dari endpoint API [PATH] secara dinamis".
+- INTEGRATION: "Jalankan npm run dev di root project, akses http://localhost:PORT di browser, halaman utama tampil tanpa error console".
 
-Wajib pada layer INTEGRATION include minimal 2-3 task khusus ini:
-1. Setup Testing Infrastructure - config jest/vitest + basic test setup scripts
-2. E2E Test Configuration - setup playwright/cypress untuk end-to-end verification
-3. Local Verification Scripts - command npm run dev/start yang user bisa jalankan
+Wajib pada layer INTEGRATION include minimal 4 task khusus ini:
+1. Wire Database to Backend API - pastikan Prisma client ter-import dan terhubung di semua route controller
+2. Wire Frontend to Backend API - buat API client/fetch wrapper dengan base URL terkonfigurasi dan hubungkan seluruh page ke API
+3. Setup Testing Infrastructure - config test runner + basic test setup scripts
+4. Local E2E Verification & Smoke Test - command npm run dev berhasil, landing page render, dan minimal 1 alur bisnis utama berhasil dijalankan
 
 Minimal 1 task per fitur. Urutkan order global. Pastikan semua task acceptance criteria testable sebelum submit. Kembalikan HANYA JSON.`;
 

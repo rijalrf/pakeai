@@ -176,8 +176,9 @@ program
   .command('done [id]')
   .description('Tandai task selesai. Menjalankan runtime scope guard (Cek file terlarang + validation commands) sebelum submit.')
   .option('--force', 'Lewati runtime scope guard.')
+  .option('--summary <text>', 'Ringkasan singkat hasil implementasi task untuk referensi task berikutnya.')
   .option('--dir <path>', 'Direktori project. Default: direktori saat ini.')
-  .action(async (id?: string, opts?: { force?: boolean; dir?: string }) => {
+  .action(async (id?: string, opts?: { force?: boolean; dir?: string; summary?: string }) => {
     const cfg = loadConfig();
     const taskId = id ?? cfg.activeTaskId;
     if (!taskId) {
@@ -223,7 +224,7 @@ program
       console.log('--force: lewati runtime scope guard.');
     }
 
-    const r = await api.done(cfg, taskId);
+    const r = await api.done(cfg, taskId, { outputSummary: opts?.summary });
     console.log(`Task ${r.taskId} -> ${r.status}`);
     if (r.checkpointPending) {
       console.log(`\n!!! CHECKPOINT PENDING !!!`);
