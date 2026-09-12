@@ -13,5 +13,11 @@ export default defineConfig({
     host: true,
     // Izinkan akses lewat domain tunnel Cloudflare (selain localhost).
     allowedHosts: ['pakeai.mrijal.my.id'],
+    proxy: {
+      '/api': {
+        target: 'http://localhost:6655',
+        changeOrigin: true,
+      },
+    },
   },
 });
