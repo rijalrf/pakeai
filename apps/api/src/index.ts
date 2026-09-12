@@ -1346,7 +1346,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
             validation_commands: t.validation_commands,
             definition_of_done: t.definition_of_done,
             out_of_scope: t.out_of_scope,
-            consumesApis: (t as any).consumesApis ?? [],
+            consumesApis: t.consumesApis ?? [],
           },
           acceptanceCriteria: t.acceptanceCriteria,
         },

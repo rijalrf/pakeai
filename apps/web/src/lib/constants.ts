@@ -2,6 +2,7 @@
 
 export const STAGE_ORDER: Record<string, number> = {
   chat: 0,
+  interview: 1, // backward compat: project lama yang masih ber-wizardStep 'interview'
   techstack: 1,
   brd: 2,
   tree: 3,

@@ -497,7 +497,7 @@ export function TechStackPage() {
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                AI menganalisis ide aplikasi dari obrolan brainstorming dan interview untuk menyusun kombinasi stack paling optimal, stabil, dan modern.
+                AI menganalisis ide aplikasi dari obrolan brainstorming untuk menyusun kombinasi stack paling optimal, stabil, dan modern.
               </p>
             </div>
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 
-const API_BASE = 'http://localhost:6655';
+const API_BASE = process.env.PAKEAI_API_URL || 'http://localhost:6655';
 
 async function run() {
   console.log('--- 1. REGISTER & LOGIN REAL TEST USER ---');
