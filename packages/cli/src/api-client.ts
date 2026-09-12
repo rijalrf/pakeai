@@ -67,6 +67,7 @@ export type ContextResp = {
     layer?: string;
     forbidden?: string[];
     files_readonly?: string[];
+    files_to_create?: string[];
     validation_commands?: string[];
   };
 };

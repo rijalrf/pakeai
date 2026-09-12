@@ -31,6 +31,8 @@ import { validateCleanup } from './lib/ai/cleanup-validator.js';
 import { auditTasksSecurity } from './lib/ai/security-audit.js';
 import { replyChat, finalizeChatSession, recommendTechStack, generateTreeFromBrd } from './lib/ai/chat.js';
 import { buildZip } from './lib/zip.js';
+import { parseStackEntry, resolveStackContract } from './lib/ai/stack-contract.js';
+import { validateEssentialFiles, autoInjectEssentialFiles } from './lib/ai/essential-files-validator.js';
 
 // Hash token utility (mirrors requireAgent.middleware)
 function hashToken(token: string): string {
@@ -817,6 +819,7 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
       layer: task.layer,
       forbidden: ctx.forbidden ?? [],
       files_readonly: ctx.files_readonly ?? [],
+      files_to_create: ctx.files_to_create ?? [],
       validation_commands: ctx.validation_commands ?? [],
     },
   });
@@ -1344,6 +1347,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
     where: { id: req.params.id, userId: req.userId },
     include: {
       brd: true,
+      stacks: true,
       roadmap: { include: { features: { include: { dependencies: true } } } },
     },
   });
@@ -1392,6 +1396,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
         where: { id: req.params.id, userId: req.userId },
         include: {
           brd: true,
+          stacks: true,
           roadmap: { include: { features: { include: { dependencies: true } } } },
         },
       });
@@ -1460,12 +1465,15 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
       }
     }
 
+    const stackContract = resolveStackContract(project.stacks || []);
+
     let generated = await generateTasksFromRoadmap({
       roadmap: { phases: phasesForAI },
       projectName: project.name,
       brd: brdData,
       uiSpec: uiSpecData,
       projectId: project.id,
+      stack: stackContract,
     });
 
     // Validasi coverage API ke UI: pastikan seluruh mutasi punya pemanggil di frontend
@@ -1484,6 +1492,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
           uiSpec: uiSpecData,
           projectId: project.id,
           feedback,
+          stack: stackContract,
         });
         generated = retryGenerated;
         coverage = validateApiCoverage(generated, brdData?.apiEndpoints ?? []);
@@ -1493,6 +1502,13 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
       } catch (retryErr) {
         console.warn('[API-COVERAGE] Retry perbaikan task gagal, gunakan hasil pertama:', (retryErr as Error).message);
       }
+    }
+
+    // Validasi file esensial deterministik (.env.example, .env, index.html, main.tsx/main.ts, tailwind, dsb.)
+    const essentialCheck = validateEssentialFiles(generated, stackContract);
+    if (!essentialCheck.valid) {
+      console.warn(`[ESSENTIAL-FILES] Berkas esensial terlewat: ${essentialCheck.missing.join(', ')}. Melakukan auto-inject deterministik...`);
+      generated = autoInjectEssentialFiles(generated, stackContract, essentialCheck.missing);
     }
 
     // Validasi DAG Deterministik (Bab 35 & 36): deteksi siklus, buang self-dep, dan urutkan topologis
@@ -1929,16 +1945,17 @@ app.put('/api/projects/:id/techstack', requireUser, async (req: AuthedRequest, r
   await prisma.stack.deleteMany({ where: { projectId: project.id } });
   const stacks = Array.isArray(req.body.techStack) ? req.body.techStack : [];
   await Promise.all(
-    stacks.map((s: string) =>
-      prisma.stack.create({
+    stacks.map((s: string) => {
+      const parsed = parseStackEntry(s);
+      return prisma.stack.create({
         data: {
           projectId: project.id,
-          category: 'general',
-          name: typeof s === 'string' ? s.split(':')[0].trim() : 'Stack',
-          version: typeof s === 'string' && s.includes('v') ? s.split('v')[1]?.trim() : null,
+          category: parsed.category,
+          name: parsed.name,
+          version: parsed.version,
         },
-      })
-    )
+      });
+    })
   );
 
   await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'brd' } });
