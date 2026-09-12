@@ -181,12 +181,12 @@ export function TaskDetailDialog({ task, isOpen, onClose, onStatusChange, userSt
 
         {/* Konten Scrollable */}
         <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1 text-sm">
-          {/* User Story Induk */}
+          {/* User Story */}
           {parentStory ? (
             <div className="space-y-2 bg-primary/5 border border-primary/20 rounded-xl p-3.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
-                  <BookOpen className="h-3.5 w-3.5" /> User Story Induk: {parentStory.id}
+                  <BookOpen className="h-3.5 w-3.5" /> User Story: {parentStory.id}
                 </span>
                 <Badge variant="outline" className="text-[11px] bg-background">
                   Sebagai {parentStory.persona}
@@ -209,7 +209,7 @@ export function TaskDetailDialog({ task, isOpen, onClose, onStatusChange, userSt
             </div>
           ) : ctx?.userStoryId ? (
             <div className="space-y-1 bg-muted/20 border border-border p-3 rounded-lg text-xs">
-              <span className="font-semibold text-muted-foreground">User Story Induk:</span>
+              <span className="font-semibold text-muted-foreground">User Story:</span>
               <span className="ml-2 font-mono font-bold text-primary">{ctx.userStoryId}</span>
             </div>
           ) : null}
