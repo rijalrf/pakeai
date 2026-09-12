@@ -1,14 +1,28 @@
-// Board page: papan Kanban task implementasi project.
+// Board page: papan Kanban task implementasi project dengan kolom User Story & kolom card.
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/http';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RefreshCw, Activity, Zap, Clock, CheckCircle2 } from 'lucide-react';
+import {
+  Loader2,
+  RefreshCw,
+  Activity,
+  Zap,
+  Clock,
+  CheckCircle2,
+  BookOpen,
+  Filter,
+  X,
+} from 'lucide-react';
 import { useWizardNav } from '@/components/layout/wizard-nav';
 import { ExecutionDialog } from '@/components/execution/execution-dialog';
-import { TaskDetailDialog, type TaskDetail } from '@/components/kanban/task-detail-dialog';
+import {
+  TaskDetailDialog,
+  type TaskDetail,
+  type UserStory,
+} from '@/components/kanban/task-detail-dialog';
 
 type AiMetricsSummary = {
   totalCalls: number;
@@ -25,6 +39,8 @@ export function BoardPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [userStories, setUserStories] = useState<UserStory[]>([]);
+  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<AiMetricsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -90,9 +106,12 @@ export function BoardPage() {
       if (mode === 'manual') setRefreshing(true);
 
       try {
-        const json = await api<{ tasks: Task[] }>(`/api/projects/${projectId}/tasks`);
+        const json = await api<{ tasks: Task[]; userStories?: UserStory[] }>(
+          `/api/projects/${projectId}/tasks`
+        );
         if (json.tasks && json.tasks.length > 0) {
           setTasks(json.tasks);
+          if (json.userStories) setUserStories(json.userStories);
         } else if (mode === 'initial') {
           await generateTasks();
         }
@@ -129,8 +148,11 @@ export function BoardPage() {
       await api(`/api/projects/${projectId}/tasks/generate`, {
         method: 'POST',
       });
-      const refreshJson = await api<{ tasks: Task[] }>(`/api/projects/${projectId}/tasks`);
+      const refreshJson = await api<{ tasks: Task[]; userStories?: UserStory[] }>(
+        `/api/projects/${projectId}/tasks`
+      );
       setTasks(refreshJson.tasks || []);
+      if (refreshJson.userStories) setUserStories(refreshJson.userStories);
     } catch (err) {
       console.error('Error generating tasks:', err);
     } finally {
@@ -147,15 +169,20 @@ export function BoardPage() {
     { status: 'BLOCKED', label: 'Blocked' },
   ];
 
+  const displayedTasks = selectedStoryId
+    ? tasks.filter((t) => t.aiContext?.userStoryId === selectedStoryId)
+    : tasks;
+
+  const selectedStory = userStories.find((s) => s.id === selectedStoryId);
+
   if (loading || generating) {
     return (
       <div className="space-y-6">
-        {/* Skeleton kanban columns */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          {columns.map((col) => (
-            <Card key={col.status}>
+        <div className="flex flex-col lg:flex-row gap-4 items-start">
+          <div className="w-full lg:w-80 shrink-0">
+            <Card>
               <CardHeader>
-                <div className="h-5 bg-muted w-1/2 rounded animate-pulse" />
+                <div className="h-5 bg-muted w-2/3 rounded animate-pulse" />
               </CardHeader>
               <CardContent className="space-y-3">
                 {[1, 2, 3].map((i) => (
@@ -163,7 +190,21 @@ export function BoardPage() {
                 ))}
               </CardContent>
             </Card>
-          ))}
+          </div>
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-4 w-full">
+            {columns.map((col) => (
+              <Card key={col.status}>
+                <CardHeader>
+                  <div className="h-5 bg-muted w-1/2 rounded animate-pulse" />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-20 bg-muted rounded animate-pulse" />
+                  ))}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -243,75 +284,217 @@ export function BoardPage() {
         </div>
       )}
 
-      {/* Kanban Columns */}
-      <div className="mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          {columns.map((col) => (
-            <Card key={col.status}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">{col.label}</CardTitle>
-                <Badge variant="outline" className="mt-1">
-                  {tasks.filter((t) => t.status === col.status).length} task
+      {/* Layout Utama: Kolom User Story & Kolom Card Kanban */}
+      <div className="flex flex-col xl:flex-row gap-4 items-start">
+        {/* Kolom User Story (Sisi Kiri) */}
+        <div className="w-full xl:w-80 shrink-0 space-y-3">
+          <Card className="border-border shadow-xs">
+            <CardHeader className="pb-3 border-b border-border/60">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-sm font-bold">Kolom User Story</CardTitle>
+                </div>
+                <Badge variant="outline" className="text-[11px] font-mono">
+                  {userStories.length} story
                 </Badge>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {tasks.filter((t) => t.status === col.status).map((task) => {
-                  const pendingDeps = (task.dependsOn ?? []).filter((d) => d.dependsOn.status !== 'DONE');
-                  const isBlocked = pendingDeps.length > 0;
-                  const taskIdLabel = task.aiContext?.taskId || (task.order ? `#${task.order}` : undefined);
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Induk kebutuhan. Klik kartu untuk menyaring task turunan.
+              </p>
+            </CardHeader>
+            <CardContent className="p-3 space-y-2.5 max-h-[calc(100vh-280px)] overflow-y-auto">
+              {/* Opsi: Tampilkan Semua Task */}
+              <div
+                onClick={() => setSelectedStoryId(null)}
+                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                  selectedStoryId === null
+                    ? 'bg-primary/10 border-primary text-foreground shadow-xs'
+                    : 'bg-muted/30 border-border hover:bg-muted/60 text-muted-foreground'
+                }`}
+              >
+                <div className="flex items-center justify-between font-semibold text-xs text-foreground mb-1">
+                  <span>Semua User Story</span>
+                  <Badge variant="outline" className="text-[10px] bg-muted/50">
+                    {tasks.length} task
+                  </Badge>
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  Tampilkan seluruh task tanpa filter
+                </div>
+              </div>
 
-                  return (
-                    <Card
-                      key={task.id}
-                      onClick={() => setSelectedTask(task)}
-                      className="cursor-pointer hover:shadow-md hover:border-primary/50 transition-all"
-                    >
-                      <CardHeader className="pb-1.5 pt-3 px-3">
-                        <div className="flex items-center justify-between gap-1.5 mb-1">
-                          {taskIdLabel && (
-                            <span className="font-mono text-[10px] text-muted-foreground font-semibold">
-                              {taskIdLabel}
-                            </span>
-                          )}
-                          {task.aiContext?.requirement_ids && task.aiContext.requirement_ids.length > 0 && (
-                            <span className="font-mono text-[10px] text-primary">
-                              {task.aiContext.requirement_ids.join(', ')}
-                            </span>
-                          )}
-                        </div>
-                        <CardTitle className="text-xs font-semibold leading-snug">{task.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="px-3 pb-3 pt-0">
-                        {task.description && (
-                          <p className="text-[11px] text-muted-foreground line-clamp-2 mt-1">{task.description}</p>
-                        )}
-                        <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                            {task.layer}
-                          </Badge>
-                          {col.status === 'TODO' && isBlocked && (
-                            <Badge variant="warning" className="text-[10px] px-1.5 py-0">
-                              Tunggu #{pendingDeps.map((d) => d.dependsOn.order).join(', ')}
-                            </Badge>
-                          )}
-                          {col.status === 'TODO' && !isBlocked && (task.dependsOn ?? []).length > 0 && (
-                            <Badge variant="success" className="text-[10px] px-1.5 py-0">
-                              Siap
-                            </Badge>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-                {tasks.filter((t) => t.status === col.status).length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4 italic">
-                    Kosong
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+              {/* Daftar User Story */}
+              {userStories.map((story) => {
+                const storyTasks = tasks.filter((t) => t.aiContext?.userStoryId === story.id);
+                const doneCount = storyTasks.filter((t) => t.status === 'DONE').length;
+                const isSelected = selectedStoryId === story.id;
+                const percent =
+                  storyTasks.length > 0 ? Math.round((doneCount / storyTasks.length) * 100) : 0;
+
+                return (
+                  <div
+                    key={story.id}
+                    onClick={() => setSelectedStoryId(isSelected ? null : story.id)}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all space-y-2 ${
+                      isSelected
+                        ? 'bg-primary/10 border-primary text-foreground shadow-sm'
+                        : 'bg-card border-border hover:border-primary/40 text-foreground'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-mono text-xs font-bold text-primary">{story.id}</span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-muted/40">
+                        {story.persona}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-foreground/90 font-medium leading-snug line-clamp-2">
+                      Saya ingin {story.action}, sehingga {story.benefit}.
+                    </p>
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/50">
+                      <span>
+                        Turunan: <strong className="text-foreground">{storyTasks.length} task</strong>
+                      </span>
+                      <span>
+                        {doneCount}/{storyTasks.length} ({percent}%)
+                      </span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="bg-emerald-500 h-full transition-all duration-300"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+              {userStories.length === 0 && (
+                <div className="p-4 text-center text-xs text-muted-foreground border border-dashed rounded-xl">
+                  Belum ada data User Story di BRD.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Kolom Card (Papan Kanban di Sebelah Kanan Kolom User Story) */}
+        <div className="flex-1 min-w-0 space-y-3 w-full">
+          {/* Banner Filter Story Aktif */}
+          {selectedStory && (
+            <div className="flex items-center justify-between p-3 rounded-xl bg-primary/10 border border-primary/20 text-xs">
+              <div className="flex items-center gap-2 truncate">
+                <Filter className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="font-bold text-primary">{selectedStory.id}:</span>
+                <span className="text-foreground truncate font-medium">
+                  Sebagai {selectedStory.persona} — {selectedStory.action}
+                </span>
+                <Badge variant="outline" className="text-[10px] shrink-0 ml-1 bg-background">
+                  {displayedTasks.length} task turunan
+                </Badge>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedStoryId(null)}
+                className="h-6 text-xs px-2 text-muted-foreground hover:text-foreground shrink-0 gap-1"
+              >
+                <X className="h-3 w-3" />
+                <span>Reset</span>
+              </Button>
+            </div>
+          )}
+
+          {/* Kolom Card Status Kanban */}
+          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3.5">
+            {columns.map((col) => {
+              const colTasks = displayedTasks.filter((t) => t.status === col.status);
+              return (
+                <Card key={col.status} className="border-border flex flex-col h-full">
+                  <CardHeader className="pb-2 pt-3 px-3.5 border-b border-border/50">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        {col.label}
+                      </CardTitle>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+                        {colTasks.length}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-2.5 space-y-2.5 flex-1 overflow-y-auto">
+                    {colTasks.map((task) => {
+                      const pendingDeps = (task.dependsOn ?? []).filter((d) => d.dependsOn.status !== 'DONE');
+                      const isBlocked = pendingDeps.length > 0;
+                      const taskIdLabel = task.aiContext?.taskId || (task.order ? `#${task.order}` : undefined);
+                      const storyId = task.aiContext?.userStoryId;
+
+                      return (
+                        <Card
+                          key={task.id}
+                          onClick={() => setSelectedTask(task)}
+                          className="cursor-pointer hover:shadow-md hover:border-primary/50 transition-all border-border bg-card"
+                        >
+                          <CardHeader className="pb-1.5 pt-2.5 px-3">
+                            <div className="flex items-center justify-between gap-1 mb-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {taskIdLabel && (
+                                  <span className="font-mono text-[10px] text-muted-foreground font-semibold">
+                                    {taskIdLabel}
+                                  </span>
+                                )}
+                                {storyId && (
+                                  <Badge
+                                    variant="outline"
+                                    className="font-mono text-[9px] px-1 py-0 bg-primary/10 text-primary border border-primary/20 font-semibold"
+                                  >
+                                    <BookOpen className="h-2.5 w-2.5 mr-0.5" />
+                                    {storyId}
+                                  </Badge>
+                                )}
+                              </div>
+                              {task.aiContext?.requirement_ids && task.aiContext.requirement_ids.length > 0 && (
+                                <span className="font-mono text-[9px] text-primary">
+                                  {task.aiContext.requirement_ids[0]}
+                                </span>
+                              )}
+                            </div>
+                            <CardTitle className="text-xs font-semibold leading-snug">{task.title}</CardTitle>
+                          </CardHeader>
+                          <CardContent className="px-3 pb-2.5 pt-0">
+                            {task.description && (
+                              <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">
+                                {task.description}
+                              </p>
+                            )}
+                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                              <Badge variant="outline" className="text-[9px] px-1.5 py-0">
+                                {task.layer}
+                              </Badge>
+                              {col.status === 'TODO' && isBlocked && (
+                                <Badge variant="warning" className="text-[9px] px-1.5 py-0">
+                                  Tunggu #{pendingDeps.map((d) => d.dependsOn.order).join(', ')}
+                                </Badge>
+                              )}
+                              {col.status === 'TODO' && !isBlocked && (task.dependsOn ?? []).length > 0 && (
+                                <Badge variant="success" className="text-[9px] px-1.5 py-0">
+                                  Siap
+                                </Badge>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                    {colTasks.length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-6 italic select-none">
+                        Kosong
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -327,6 +510,7 @@ export function BoardPage() {
         isOpen={!!selectedTask}
         onClose={() => setSelectedTask(null)}
         onStatusChange={handleTaskStatusChange}
+        userStories={userStories}
       />
     </div>
   );

@@ -162,13 +162,16 @@ async function runTest() {
   const tasksGetJson = await tasksGetRes.json();
   assert(tasksGetJson.tasks.length > 0, 'Tasks harus ada');
   console.log(`Tasks idempotent check OK: ${tasksGetJson.tasks.length} tasks.`);
+  assert(Array.isArray(tasksGetJson.userStories), 'Response /api/projects/:id/tasks harus menyertakan userStories');
+  console.log(`User stories dari BRD terhubung: ${tasksGetJson.userStories.length} stories.`);
 
-  // Verifikasi struktur task (Acceptance Criteria & Validation Commands multi-stack)
+  // Verifikasi struktur task (Acceptance Criteria, Validation Commands, dan User Story Induk)
   for (const t of tasksGetJson.tasks) {
     assert(Array.isArray(t.acceptanceCriteria) && t.acceptanceCriteria.length > 0, `Task #${t.order} harus memiliki acceptanceCriteria`);
     assert(Array.isArray(t.aiContext?.validation_commands) && t.aiContext.validation_commands.length > 0, `Task #${t.order} harus memiliki validation_commands`);
+    assert(typeof t.aiContext?.userStoryId === 'string' && t.aiContext.userStoryId.length > 0, `Task #${t.order} harus memiliki userStoryId induk`);
   }
-  console.log(`Verifikasi semua ${tasksGetJson.tasks.length} task memiliki acceptance criteria dan validation commands OK.`);
+  console.log(`Verifikasi semua ${tasksGetJson.tasks.length} task memiliki acceptance criteria, validation commands, dan userStoryId OK.`);
 
   // Verifikasi validation_commands dinamis
   const allValCmds = tasksGetJson.tasks.flatMap((t: any) => (t.aiContext?.validation_commands || []));
