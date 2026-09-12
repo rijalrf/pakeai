@@ -27,6 +27,8 @@ import { generateTasksFromRoadmap } from './lib/ai/tasks.js';
 import { generateUiSpec, UiSpecSchema } from './lib/ai/ui-spec.js';
 import { validateAndNormalizeDAG } from './lib/ai/dag-validator.js';
 import { validateApiCoverage } from './lib/ai/api-coverage-validator.js';
+import { validateCleanup } from './lib/ai/cleanup-validator.js';
+import { auditTasksSecurity } from './lib/ai/security-audit.js';
 import { replyChat, finalizeChatSession, recommendTechStack, generateTreeFromBrd } from './lib/ai/chat.js';
 
 // Hash token utility (mirrors requireAgent.middleware)
@@ -1235,10 +1237,12 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
 
   try {
     const brdData = project.brd?.content as {
+      userStories?: Array<{ id: string; persona: string; action: string; benefit: string }>;
       functionalRequirements?: Array<{ id: string; title: string; description: string; priority?: string }>;
       businessRules?: Array<{ id: string; description: string }>;
       dataModels?: Array<{ name: string; description?: string; fields: Array<{ name: string; type: string; required?: boolean }>; relations?: string[] }>;
       apiEndpoints?: Array<{ method: string; path: string; description: string; requestBody?: string; responseBody?: string; authRequired?: boolean }>;
+      edgeCases?: Array<{ id: string; scenario: string; expectedBehavior: string }>;
       techRequirements?: string[];
     } | undefined;
 
@@ -1300,6 +1304,39 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
     const { tasks: validTasks, warnings, healed } = validateAndNormalizeDAG(generated);
     if (warnings.length > 0) {
       console.log(`[DAG-VALIDATOR] Memproses ${validTasks.length} tasks (healed=${healed}):\n${warnings.map((w) => '  - ' + w).join('\n')}`);
+    }
+
+    // Cleanup & Heuristic Validation (Tahap 6: Cleanup/Refactoring)
+    const cleanupResult = validateCleanup(validTasks);
+    if (cleanupResult.warnings.length > 0) {
+      console.log(`[CLEANUP-VALIDATOR] Peringatan kebersihan task (${cleanupResult.warnings.length}):\n${cleanupResult.warnings.map((w) => '  - ' + w).join('\n')}`);
+    }
+
+    // Security Audit Sub-pipeline (AppSec Post-Task Analysis)
+    try {
+      const parsedBrdForAudit = project.brd ? BrdSchema.safeParse(project.brd.content) : null;
+      const securityAudit = await auditTasksSecurity({
+        tasks: validTasks,
+        brd: parsedBrdForAudit?.success ? parsedBrdForAudit.data : null,
+        projectId: project.id,
+      });
+
+      if (securityAudit.additionalAcceptanceCriteria.length > 0) {
+        for (const item of securityAudit.additionalAcceptanceCriteria) {
+          const matchedTask = validTasks.find(
+            (t) => t.taskId?.toLowerCase() === item.taskId.toLowerCase()
+          );
+          if (matchedTask && item.criteria.length > 0) {
+            matchedTask.acceptanceCriteria.push(...item.criteria);
+          }
+        }
+      }
+
+      if (securityAudit.findings.length > 0) {
+        console.log(`[SECURITY-AUDIT] ${securityAudit.findings.length} temuan AppSec teridentifikasi untuk project ${project.id}`);
+      }
+    } catch (auditErr) {
+      console.warn('[SECURITY-AUDIT] Warning: Security audit pass terlewati:', (auditErr as Error).message);
     }
 
     // Hapus tasks lama, tulis ulang.
@@ -1387,7 +1424,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
     }
 
     await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'guide' } });
-    res.json({ ok: true, count: generated.length });
+    res.json({ ok: true, count: generated.length, cleanupWarnings: cleanupResult.warnings });
   } catch (err) {
     res.status(502).json({ error: 'AI gagal menghasilkan tasks.', detail: (err as Error).message });
   }

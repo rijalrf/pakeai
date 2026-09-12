@@ -39,14 +39,36 @@ export const ApiEndpointSchema = z.object({
   authRequired: z.boolean().default(false),
 });
 
+export const UserStorySchema = z.object({
+  id: z.string(), // Format: US-001, US-002, dst.
+  persona: z.string(),
+  action: z.string(),
+  benefit: z.string(),
+  acceptanceCriteria: z.array(z.string()).default([]),
+});
+
+export const EdgeCaseSchema = z.object({
+  id: z.string(), // Format: EC-001, EC-002, dst.
+  scenario: z.string(),
+  expectedBehavior: z.string(),
+});
+
+export const SuccessMetricSchema = z.object({
+  metric: z.string(),
+  target: z.string(),
+});
+
 export const BrdSchema = z.object({
   overview: z.string(),
   goals: z.array(z.string()).min(1),
   features: z.array(z.object({ id: z.string(), name: z.string(), description: z.string().optional() })).min(1),
+  userStories: z.array(UserStorySchema).default([]),
   functionalRequirements: z.array(FunctionalRequirementSchema).default([]),
   businessRules: z.array(BusinessRuleSchema).default([]),
   dataModels: z.array(DataModelSchema).default([]),
   apiEndpoints: z.array(ApiEndpointSchema).default([]),
+  edgeCases: z.array(EdgeCaseSchema).default([]),
+  successMetrics: z.array(SuccessMetricSchema).default([]),
   techRequirements: z.array(z.string()),
   nonFunctional: z.array(z.string()).default([]),
   outOfScope: z.array(z.string()).default([]),
@@ -89,6 +111,15 @@ Schema JSON yang WAJIB diikuti:
   "overview": string (2-4 kalimat ringkasan produk),
   "goals": string[] (3-6 tujuan terukur),
   "features": [{ "id": string (slug unik), "name": string, "description"?: string }] (3-8 fitur utama),
+  "userStories": [
+    {
+      "id": "US-001",
+      "persona": "Sebagai Pengguna Baru",
+      "action": "saya ingin mendaftar akun dengan verifikasi email",
+      "benefit": "supaya data dan aktivitas saya tersimpan aman",
+      "acceptanceCriteria": ["Form validasi email unik", "Kirim link verifikasi", "Akun aktif setelah klik"]
+    }
+  ],
   "functionalRequirements": [
     {
       "id": "FR-001",
@@ -127,6 +158,19 @@ Schema JSON yang WAJIB diikuti:
       "authRequired": false
     }
   ],
+  "edgeCases": [
+    {
+      "id": "EC-001",
+      "scenario": "Pengguna mengirim form saat koneksi offline atau token kedaluwarsa",
+      "expectedBehavior": "Tampilkan notifikasi kegagalan ramah, data input dipertahankan lokal, dan refresh auth otomatis jika memungkinkan"
+    }
+  ],
+  "successMetrics": [
+    {
+      "metric": "Kecepatan Respons API",
+      "target": "p95 di bawah 300ms untuk seluruh endpoint query list"
+    }
+  ],
   "techRequirements": string[] (tech stack yang digunakan),
   "nonFunctional": string[] (WAJIB mencakup item berikut jika relevan:
     - "Keamanan: JWT_SECRET wajib dari environment variable, dilarang hardcode atau fallback default. Password wajib di-hash dengan bcrypt."
@@ -139,13 +183,16 @@ Schema JSON yang WAJIB diikuti:
 }
 
 ATURAN KRITIS:
-1. Pastikan ID requirement berurutan (FR-001, FR-002...) dan aturan bisnis (BR-001, BR-002...).
-2. Minimal buat 2-5 dataModels yang mencakup seluruh domain problem.
-3. Minimal buat 4-10 apiEndpoints yang memetakan seluruh operasi CRUD dan flow bisnis utama.
-4. Jika aplikasi memiliki autentikasi (login/register), BRD WAJIB menyertakan fitur manajemen pengguna (minimal: register, lihat profil, ubah password) — bukan hanya login via seed.
-5. businessRules WAJIB menyertakan aturan integritas referensial: jika entitas A memiliki relasi aktif ke entitas B (misal: peminjaman PENDING), maka penghapusan entitas B harus DITOLAK atau memerlukan penyelesaian relasi terlebih dahulu. Dilarang silent cascade delete pada data berelasi aktif.
-6. businessRules WAJIB menyertakan aturan atomisitas untuk operasi konkuren: jika dua user dapat mengubah resource yang sama secara bersamaan (misal: approve peminjaman yang mengurangi stok), aturan bisnis harus menyebutkan bahwa operasi tersebut wajib atomik dan mencegah race condition.
-7. Kembalikan HANYA JSON valid.`;
+1. Pastikan ID requirement berurutan (FR-001, FR-002...), aturan bisnis (BR-001, BR-002...), user stories (US-001, US-002...), dan edge cases (EC-001, EC-002...).
+2. Minimal buat 3-5 userStories yang mencakup seluruh aktor utama dalam format Sebagai... saya ingin... supaya...
+3. Minimal buat 3 edgeCases kritis yang mengantisipasi kegagalan sistem atau input tak terduga.
+4. Minimal buat 2-4 successMetrics terukur (waktu proses, tingkat error, atau performa).
+5. Minimal buat 2-5 dataModels yang mencakup seluruh domain problem.
+6. Minimal buat 4-10 apiEndpoints yang memetakan seluruh operasi CRUD dan flow bisnis utama.
+7. Jika aplikasi memiliki autentikasi (login/register), BRD WAJIB menyertakan fitur manajemen pengguna (minimal: register, lihat profil, ubah password) — bukan hanya login via seed.
+8. businessRules WAJIB menyertakan aturan integritas referensial: jika entitas A memiliki relasi aktif ke entitas B (misal: peminjaman PENDING), maka penghapusan entitas B harus DITOLAK atau memerlukan penyelesaian relasi terlebih dahulu. Dilarang silent cascade delete pada data berelasi aktif.
+9. businessRules WAJIB menyertakan aturan atomisitas untuk operasi konkuren: jika dua user dapat mengubah resource yang sama secara bersamaan (misal: approve peminjaman yang mengurangi stok), aturan bisnis harus menyebutkan bahwa operasi tersebut wajib atomik dan mencegah race condition.
+10. Kembalikan HANYA JSON valid.`;
 
   return generateJson({ system, user, schema: BrdSchema, agentName: 'CanonicalBrdSpec', projectId: args.projectId });
 }

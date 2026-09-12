@@ -34,6 +34,10 @@ export const ChatFormPayloadSchema = z.object({
 
 export const ChatDonePayloadSchema = z.object({
   readyToFinalize: z.boolean().optional().default(true),
+  personas: z.array(z.string()).optional(),
+  nonGoals: z.array(z.string()).optional(),
+  edgeCases: z.array(z.string()).optional(),
+  successMetrics: z.array(z.string()).optional(),
 });
 
 export const ChatMessageSchema = z.discriminatedUnion('kind', [

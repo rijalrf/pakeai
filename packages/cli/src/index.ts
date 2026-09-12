@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, saveConfig, clearConfig, type Config } from './config.js';
 import { api, ApiError, probeHealth } from './api-client.js';
-import { runGuard, GuardError } from './guard.js';
+import { runGuard, GuardError, generateConventionalCommit, gitCommit } from './guard.js';
 
 const program = new Command();
 program
@@ -178,7 +178,8 @@ program
   .option('--force', 'Lewati runtime scope guard.')
   .option('--summary <text>', 'Ringkasan singkat hasil implementasi task untuk referensi task berikutnya.')
   .option('--dir <path>', 'Direktori project. Default: direktori saat ini.')
-  .action(async (id?: string, opts?: { force?: boolean; dir?: string; summary?: string }) => {
+  .option('--commit', 'Auto-generate conventional commit message dan jalankan git commit.')
+  .action(async (id?: string, opts?: { force?: boolean; dir?: string; summary?: string; commit?: boolean }) => {
     const cfg = loadConfig();
     const taskId = id ?? cfg.activeTaskId;
     if (!taskId) {
@@ -222,6 +223,27 @@ program
       }
     } else {
       console.log('--force: lewati runtime scope guard.');
+    }
+
+    if (opts?.commit) {
+      const cwd = opts?.dir ?? process.cwd();
+      try {
+        const taskCtx = await api.context(cfg, taskId);
+        const match = taskCtx.markdown.match(/^###\s*\[TASK\s*(\d+)\]\s*(.+)$/m);
+        const order = match ? Number(match[1]) : undefined;
+        const title = match ? match[2].trim() : 'Selesaikan task';
+        const layerMatch = taskCtx.markdown.match(/\*\*Layer\*\*:\s*([A-Za-z0-9_]+)/i);
+        const layer = layerMatch ? layerMatch[1] : (taskCtx.guard?.layer ?? 'feat');
+
+        const commitMessage = generateConventionalCommit({ title, layer, order });
+        console.log(`\nMenjalankan git commit otomatis:`);
+        console.log(`> ${commitMessage.split('\n')[0]}`);
+        const commitOut = await gitCommit(commitMessage, cwd);
+        if (commitOut) console.log(commitOut);
+        console.log('Berhasil membuat commit git.');
+      } catch (commitErr: any) {
+        console.warn(`Peringatan: Git commit otomatis gagal: ${commitErr?.message ?? commitErr}`);
+      }
     }
 
     const r = await api.done(cfg, taskId, { outputSummary: opts?.summary });

@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   ListTree,
   Lock,
+  Palette,
 } from 'lucide-react';
 import { api } from '@/lib/http';
 import { cn } from '@/lib/utils';
@@ -356,6 +357,16 @@ export function TreePage() {
               <span>Generate Ulang</span>
             </Button>
           )}
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => navigate(`/projects/${projectId}/ui-spec`)}
+            className="gap-1.5 text-xs h-9 font-medium"
+          >
+            <Palette className="h-3.5 w-3.5 text-primary" />
+            <span>Review UI Spec</span>
+          </Button>
 
           <Button
             size="sm"

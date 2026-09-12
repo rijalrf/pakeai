@@ -8,6 +8,7 @@ import { ChatPage } from '@/pages/chat';
 import { TechStackPage } from '@/pages/projects/techstack';
 import { BrdPage } from '@/pages/projects/brd';
 import { TreePage } from '@/pages/projects/tree';
+import { UiSpecPage } from '@/pages/projects/ui-spec';
 import { BoardPage } from '@/pages/projects/board';
 import { GuidePage } from '@/pages/projects/guide';
 import { SettingsPage } from '@/pages/projects/settings';
@@ -41,6 +42,7 @@ export function App() {
         <Route path="/projects/:projectId/techstack" element={<TechStackPage />} />
         <Route path="/projects/:projectId/brd" element={<BrdPage />} />
         <Route path="/projects/:projectId/tree" element={<TreePage />} />
+        <Route path="/projects/:projectId/ui-spec" element={<UiSpecPage />} />
         <Route path="/projects/:projectId/board" element={<BoardPage />} />
         <Route path="/projects/:projectId/guide" element={<GuidePage />} />
         <Route path="/projects/:projectId/settings" element={<SettingsPage />} />

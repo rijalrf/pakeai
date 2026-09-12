@@ -186,3 +186,48 @@ export async function runGuard(spec: GuardSpec, cwd: string, taskId?: string): P
     console.log('\nSemua validation commands lolos.');
   }
 }
+
+// === Git Conventional Commit Automation (Framework Vibe Coding Tahap 7) ===
+export function generateConventionalCommit(task: {
+  title: string;
+  layer?: string;
+  order?: number;
+}): string {
+  const rawLayer = (task.layer ?? 'chore').toLowerCase();
+  let type = 'feat';
+  if (rawLayer === 'bootstrap') type = 'chore';
+  else if (rawLayer === 'integration') type = 'test';
+
+  const cleanTitle = task.title.replace(/^(feat|fix|chore|refactor|test)(\(.*\))?:\s*/i, '').trim();
+  const summary = cleanTitle.length > 55 ? cleanTitle.slice(0, 52) + '...' : cleanTitle;
+  const orderText = task.order ? `Task #${task.order}` : 'pakeai task';
+  return `${type}(${rawLayer}): ${summary}\n\nAutomated commit via pakeai done --commit (${orderText})`;
+}
+
+export function gitCommit(message: string, cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const add = spawn('git', ['add', '-A'], { cwd, shell: false });
+    let addErr = '';
+    add.stderr.on('data', (d) => (addErr += d.toString()));
+    add.on('close', (addCode) => {
+      if (addCode !== 0) {
+        reject(new GuardError(`git add gagal (exit ${addCode}): ${addErr.trim()}`));
+        return;
+      }
+      const commit = spawn('git', ['commit', '-m', message], { cwd, shell: false });
+      let commitOut = '';
+      let commitErr = '';
+      commit.stdout.on('data', (d) => (commitOut += d.toString()));
+      commit.stderr.on('data', (d) => (commitErr += d.toString()));
+      commit.on('close', (commitCode) => {
+        if (commitCode !== 0) {
+          reject(new GuardError(`git commit gagal (exit ${commitCode}): ${commitErr.trim()}`));
+          return;
+        }
+        resolve(commitOut.trim());
+      });
+      commit.on('error', (e) => reject(new GuardError(`Gagal menjalankan git commit: ${e.message}`)));
+    });
+    add.on('error', (e) => reject(new GuardError(`Gagal menjalankan git add: ${e.message}`)));
+  });
+}
