@@ -5,8 +5,9 @@ import { api } from '@/lib/http';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowRight, Lock } from 'lucide-react';
+import { Loader2, Lock } from 'lucide-react';
 import { isStageLocked } from '@/lib/constants';
+import { useWizardNav } from '@/components/layout/wizard-nav';
 
 type BrdContent = {
   overview?: string;
@@ -18,6 +19,12 @@ type BrdContent = {
     action: string;
     benefit: string;
     acceptanceCriteria?: string[];
+    gherkin?: Array<{
+      title?: string;
+      given: string;
+      when: string;
+      then: string;
+    }>;
   }>;
   functionalRequirements?: Array<{
     id: string;
@@ -98,6 +105,31 @@ export function BrdPage() {
     }
   };
 
+  const handleBackToTechStack = async () => {
+    if (!projectId) return;
+    try {
+      await api(`/api/projects/${projectId}/wizard-step`, {
+        method: 'POST',
+        body: JSON.stringify({ step: 'techstack' }),
+      });
+      navigate(`/projects/${projectId}/techstack`);
+    } catch {
+      navigate(`/projects/${projectId}/techstack`);
+    }
+  };
+
+  useWizardNav({
+    back: {
+      label: 'Kembali ke Tech Stack',
+      onClick: handleBackToTechStack,
+    },
+    next: {
+      label: 'Lihat Struktur Fitur',
+      onClick: () => navigate(`/projects/${projectId}/tree`),
+      disabled: !brd || generating,
+    },
+  });
+
   if (loading || generating) {
     return (
       <div className="max-w-4xl mx-auto w-full space-y-6">
@@ -132,12 +164,12 @@ export function BrdPage() {
         </div>
       )}
 
-      {/* Header Bar dengan Tombol Aksi di Atas */}
+      {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-border">
         <div>
           <h2 className="text-lg font-semibold text-foreground">Dokumen Kebutuhan Bisnis (BRD)</h2>
           <p className="text-xs text-muted-foreground">
-            Spesifikasi kebutuhan fitur, functional requirements, dan aturan bisnis aplikasi.
+            Spesifikasi kebutuhan fitur, user stories (format Gherkin), functional requirements, dan aturan bisnis.
           </p>
         </div>
         <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
@@ -146,10 +178,6 @@ export function BrdPage() {
               Generate BRD
             </Button>
           )}
-          <Button size="sm" onClick={() => navigate(`/projects/${projectId}/tree`)} className="gap-2">
-            <span>Lihat Struktur Fitur</span>
-            <ArrowRight className="h-4 w-4" />
-          </Button>
         </div>
       </div>
 
@@ -205,31 +233,69 @@ export function BrdPage() {
           </Card>
         )}
 
-        {/* User Stories (US-xxx) */}
+        {/* User Stories (US-xxx) dengan Format Gherkin */}
         {brd?.userStories && brd.userStories.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">User Stories</CardTitle>
+              <CardTitle className="text-lg flex items-center justify-between">
+                <span>User Stories</span>
+                <span className="text-xs font-normal text-muted-foreground font-mono">Format Gherkin (Given/When/Then)</span>
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {brd.userStories.map((s) => (
-                  <div key={s.id} className="p-3 rounded-md border border-border bg-card/50 flex flex-col gap-1.5">
+                  <div key={s.id} className="p-3.5 rounded-lg border border-border bg-card/60 flex flex-col gap-2 shadow-2xs">
                     <div className="flex items-center gap-2">
                       <Badge variant="default" className="font-mono text-xs">
                         {s.id}
                       </Badge>
                       <span className="font-semibold text-xs text-primary">{s.persona}</span>
                     </div>
-                    <p className="text-xs text-foreground font-medium">
+                    <p className="text-xs text-foreground font-medium leading-relaxed">
                       {s.action}, <span className="text-muted-foreground font-normal">{s.benefit}</span>
                     </p>
                     {s.acceptanceCriteria && s.acceptanceCriteria.length > 0 && (
-                      <ul className="list-disc list-inside text-[11px] text-muted-foreground space-y-0.5 mt-1">
-                        {s.acceptanceCriteria.map((ac, idx) => (
-                          <li key={idx}>{ac}</li>
-                        ))}
-                      </ul>
+                      <div className="pt-1">
+                        <span className="text-[11px] font-semibold text-muted-foreground block mb-0.5">Kriteria Penerimaan:</span>
+                        <ul className="list-disc list-inside text-[11px] text-muted-foreground space-y-0.5">
+                          {s.acceptanceCriteria.map((ac, idx) => (
+                            <li key={idx}>{ac}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Skenario Gherkin Terstruktur */}
+                    {s.gherkin && s.gherkin.length > 0 && (
+                      <div className="mt-2 space-y-2 border-t border-border/60 pt-2.5">
+                        <span className="text-[11px] font-semibold text-foreground uppercase tracking-wider block">
+                          Skenario Gherkin:
+                        </span>
+                        <div className="space-y-2">
+                          {s.gherkin.map((g, gIdx) => (
+                            <div key={gIdx} className="bg-muted/30 rounded-md p-2.5 text-xs border border-border/60 space-y-1 font-mono">
+                              {g.title && (
+                                <div className="font-sans font-semibold text-primary text-[11px] mb-1">
+                                  {g.title}
+                                </div>
+                              )}
+                              <div className="text-[11px]">
+                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">Given</span>{' '}
+                                <span className="text-foreground/90">{g.given}</span>
+                              </div>
+                              <div className="text-[11px]">
+                                <span className="text-amber-600 dark:text-amber-400 font-bold">When</span>{' '}
+                                <span className="text-foreground/90">{g.when}</span>
+                              </div>
+                              <div className="text-[11px]">
+                                <span className="text-blue-600 dark:text-blue-400 font-bold">Then</span>{' '}
+                                <span className="text-foreground/90">{g.then}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
                 ))}

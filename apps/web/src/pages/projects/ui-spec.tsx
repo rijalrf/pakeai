@@ -5,7 +5,8 @@ import { api } from '@/lib/http';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowRight, Layout, Palette, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Loader2, Layout, Palette, ShieldCheck, RefreshCw } from 'lucide-react';
+import { useWizardNav } from '@/components/layout/wizard-nav';
 
 type PageSpec = {
   name: string;
@@ -78,6 +79,17 @@ export function UiSpecPage() {
     }
   };
 
+  useWizardNav({
+    back: {
+      label: 'Kembali ke Diagram Struktur',
+      onClick: () => navigate(`/projects/${projectId}/tree`),
+    },
+    next: {
+      label: 'Lanjut ke Board Task',
+      onClick: () => navigate(`/projects/${projectId}/board`),
+    },
+  });
+
   if (loading || generating) {
     return (
       <div className="max-w-4xl mx-auto w-full space-y-6">
@@ -118,10 +130,6 @@ export function UiSpecPage() {
           >
             {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             <span>{uiSpec ? 'Generate Ulang' : 'Generate UI Spec'}</span>
-          </Button>
-          <Button size="sm" onClick={() => navigate(`/projects/${projectId}/board`)} className="gap-2">
-            <span>Lanjut ke Board Task</span>
-            <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
       </div>

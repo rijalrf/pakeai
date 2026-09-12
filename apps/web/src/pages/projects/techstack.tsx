@@ -25,6 +25,7 @@ import {
 import { api } from '@/lib/http';
 import { cn } from '@/lib/utils';
 import { isStageLocked } from '@/lib/constants';
+import { useWizardNav } from '@/components/layout/wizard-nav';
 
 // Preset kategori untuk form manual
 const PRESET_CATEGORIES = [
@@ -192,6 +193,67 @@ export function TechStackPage() {
     }
   };
 
+  const handleBackToChat = async () => {
+    if (!projectId) return;
+    try {
+      const res = await api<{ ok: boolean; chatSessionId?: string }>(`/api/projects/${projectId}/wizard-step`, {
+        method: 'POST',
+        body: JSON.stringify({ step: 'chat' }),
+      });
+      if (res.chatSessionId) {
+        navigate(`/chat/${res.chatSessionId}`);
+        return;
+      }
+      navigate('/');
+    } catch {
+      navigate('/');
+    }
+  };
+
+  useWizardNav(
+    view === 'manual'
+      ? {
+          back: {
+            label: 'Pilihan Metode',
+            onClick: () => setView('select'),
+          },
+          next: {
+            label: 'Simpan & Lanjut ke BRD',
+            onClick: saveAndContinue,
+            disabled: selected.length === 0,
+            loading: saving,
+          },
+        }
+      : isLocked
+      ? {
+          back: {
+            label: 'Kembali ke Chat',
+            onClick: handleBackToChat,
+          },
+          next: {
+            label: 'Lanjut ke BRD',
+            onClick: () => navigate(`/projects/${projectId}/brd`),
+          },
+        }
+      : {
+          back: {
+            label: 'Kembali ke Chat',
+            onClick: handleBackToChat,
+          },
+          next:
+            selectedMode === 'ai'
+              ? {
+                  label: 'Lanjut ke BRD (Rekomendasi AI)',
+                  onClick: handleAiGenerateAndProceed,
+                  loading: generatingAi,
+                }
+              : {
+                  label: 'Lanjut Pilih Manual',
+                  onClick: () => setView('manual'),
+                },
+        }
+  );
+
   // ============================================================
   // TAMPILAN 1: READ-ONLY (JIKA TAHAP TECH STACK SUDAH DILEWATI/TERKUNCI)
   // ============================================================
@@ -235,17 +297,6 @@ export function TechStackPage() {
             )}
           </CardContent>
         </Card>
-
-        <div className="flex justify-end pt-2 border-t border-border">
-          <Button
-            size="lg"
-            onClick={() => navigate(`/projects/${projectId}/brd`)}
-            className="gap-2 font-medium"
-          >
-            <span>Lanjut ke BRD</span>
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </div>
       </div>
     );
   }
@@ -256,19 +307,8 @@ export function TechStackPage() {
   if (view === 'manual') {
     return (
       <div className="max-w-4xl mx-auto w-full space-y-6">
-        {/* Tombol kembali ke 2 Card pilihan */}
-        <div className="flex items-center justify-between pb-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setView('select')}
-            className="gap-1.5 text-xs"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Kembali ke Pilihan Metode</span>
-          </Button>
-
+        {/* Status pilihan */}
+        <div className="flex items-center justify-end pb-1">
           <span className="text-xs text-muted-foreground bg-muted/60 px-3 py-1 rounded-full">
             {selected.length} teknologi dipilih
           </span>
@@ -410,24 +450,10 @@ export function TechStackPage() {
               </span>
             ) : (
               <span className="text-primary font-medium">
-                {selected.length} teknologi terpilih. Siap melanjutkan ke penyusunan BRD.
+                {selected.length} teknologi terpilih.
               </span>
             )}
           </div>
-
-          <Button
-            size="lg"
-            onClick={saveAndContinue}
-            disabled={saving || selected.length === 0}
-            className="w-full sm:w-auto gap-2 font-medium"
-          >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ArrowRight className="h-4 w-4" />
-            )}
-            Lanjut ke BRD
-          </Button>
         </div>
       </div>
     );
@@ -615,43 +641,13 @@ export function TechStackPage() {
         </div>
       </div>
 
-      {/* Tombol Eksekusi Bawah */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-border">
-        <p className="text-xs text-muted-foreground text-center sm:text-left">
+      {/* Info Eksekusi */}
+      <div className="pt-4 border-t border-border text-center">
+        <p className="text-xs text-muted-foreground">
           {selectedMode === 'ai'
-            ? 'AI akan menyusun konfigurasi stack terbaik secara otomatis lalu lanjut ke penyusunan BRD.'
-            : 'Anda akan diarahkan ke form pilihan kategori manual untuk memilih setiap teknologi.'}
+            ? 'Pilihan Rekomendasi AI aktif. Gunakan tombol di bar navigasi atas untuk lanjut ke penyusunan BRD.'
+            : 'Pilihan Manual aktif. Gunakan tombol di bar navigasi atas untuk membuka formulir kategori teknologi.'}
         </p>
-
-        {selectedMode === 'ai' ? (
-          <Button
-            size="lg"
-            onClick={handleAiGenerateAndProceed}
-            disabled={generatingAi}
-            className="w-full sm:w-auto gap-2 font-medium"
-          >
-            {generatingAi ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Menghasilkan Rekomendasi...</span>
-              </>
-            ) : (
-              <>
-                <span>Lanjut</span>
-                <ArrowRight className="h-4 w-4" />
-              </>
-            )}
-          </Button>
-        ) : (
-          <Button
-            size="lg"
-            onClick={() => setView('manual')}
-            className="w-full sm:w-auto gap-2 font-medium"
-          >
-            <span>Lanjut</span>
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        )}
       </div>
     </div>
   );

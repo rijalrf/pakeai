@@ -5,7 +5,9 @@ import { api } from '@/lib/http';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ArrowRight, RefreshCw, Activity, Zap, Clock, CheckCircle2 } from 'lucide-react';
+import { Loader2, RefreshCw, Activity, Zap, Clock, CheckCircle2 } from 'lucide-react';
+import { useWizardNav } from '@/components/layout/wizard-nav';
+import { ExecutionDialog } from '@/components/execution/execution-dialog';
 
 type AiMetricsSummary = {
   totalCalls: number;
@@ -47,6 +49,41 @@ export function BoardPage() {
   const [generating, setGenerating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [executionDialogOpen, setExecutionDialogOpen] = useState(false);
+  const [projectName, setProjectName] = useState('');
+
+  useEffect(() => {
+    if (!projectId) return;
+    api<{ project?: { name?: string } }>(`/api/projects/${projectId}`)
+      .then((res) => {
+        if (res.project?.name) setProjectName(res.project.name);
+      })
+      .catch(() => {});
+  }, [projectId]);
+
+  const handleBackToTree = async () => {
+    if (!projectId) return;
+    try {
+      await api(`/api/projects/${projectId}/wizard-step`, {
+        method: 'POST',
+        body: JSON.stringify({ step: 'tree' }),
+      });
+      navigate(`/projects/${projectId}/tree`);
+    } catch {
+      navigate(`/projects/${projectId}/tree`);
+    }
+  };
+
+  useWizardNav({
+    back: {
+      label: 'Kembali ke Diagram Struktur',
+      onClick: handleBackToTree,
+    },
+    next: {
+      label: 'Panduan Eksekusi',
+      onClick: () => setExecutionDialogOpen(true),
+    },
+  });
 
   const loadMetrics = useCallback(async () => {
     if (!projectId) return;
@@ -178,15 +215,6 @@ export function BoardPage() {
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
             <span>{refreshing ? 'Memuat...' : 'Refresh'}</span>
           </Button>
-
-          <Button
-            size="sm"
-            onClick={() => navigate(`/projects/${projectId}/guide`)}
-            className="gap-1.5 font-medium"
-          >
-            <ArrowRight className="h-4 w-4" />
-            Panduan Eksekusi
-          </Button>
         </div>
       </div>
 
@@ -291,6 +319,13 @@ export function BoardPage() {
           ))}
         </div>
       </div>
+
+      <ExecutionDialog
+        projectId={projectId!}
+        projectName={projectName}
+        isOpen={executionDialogOpen}
+        onClose={() => setExecutionDialogOpen(false)}
+      />
     </div>
   );
 }

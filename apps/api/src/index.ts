@@ -30,6 +30,7 @@ import { validateApiCoverage } from './lib/ai/api-coverage-validator.js';
 import { validateCleanup } from './lib/ai/cleanup-validator.js';
 import { auditTasksSecurity } from './lib/ai/security-audit.js';
 import { replyChat, finalizeChatSession, recommendTechStack, generateTreeFromBrd } from './lib/ai/chat.js';
+import { buildZip } from './lib/zip.js';
 
 // Hash token utility (mirrors requireAgent.middleware)
 function hashToken(token: string): string {
@@ -43,8 +44,8 @@ const STAGE_ORDER: Record<string, number> = {
   brd: 2,
   tree: 3,
   board: 4,
-  guide: 5,
-  done: 6,
+  guide: 5, // Kompatibilitas data lama
+  done: 5,
 };
 
 function isStageLocked(currentStep: string | undefined | null, targetStage: string): boolean {
@@ -834,24 +835,15 @@ app.get('/api/agent/brd', requireAgent, async (req: AgentRequest, res) => {
 });
 
 // ============================================================
-// User endpoint: download BRD sebagai .md file
+// Helper format markdown export dokumen proyek
 // ============================================================
-app.get('/api/projects/:id/brd/download', requireUser, async (req: AuthedRequest, res) => {
-  const project = await prisma.project.findFirst({
-    where: { id: req.params.id, userId: req.userId },
-    include: { brd: true },
-  });
-  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
-  if (!project.brd) {
-    return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
-  }
-
-  const content = (project.brd.content ?? {}) as any;
-  const md = [
+function buildBrdMarkdown(project: { name: string }, brd: { generatedAt: Date | string; version: number; content: any }): string {
+  const content = (brd.content ?? {}) as any;
+  return [
     `# Business Requirements Document (${project.name})`,
     ``,
-    `**Generated:** ${new Date(project.brd.generatedAt).toLocaleString('id-ID')}`,
-    `**Version:** ${project.brd.version}`,
+    `**Generated:** ${new Date(brd.generatedAt).toLocaleString('id-ID')}`,
+    `**Version:** ${brd.version}`,
     ``,
     `---`,
     ``,
@@ -875,6 +867,17 @@ app.get('/api/projects/:id/brd/download', requireUser, async (req: AuthedRequest
     ``,
     `---`,
     ``,
+    `## User Stories (Format Gherkin)`,
+    ``,
+    ...(content.userStories?.map((us: any) => {
+      const gherkinLines = us.gherkin?.map((g: any) =>
+        `#### Scenario: ${g.title || 'Skenario'}\n- **Given** ${g.given}\n- **When** ${g.when}\n- **Then** ${g.then}`
+      ).join('\n\n') ?? '';
+      return `### ${us.id}: ${us.persona || 'Pengguna'}\n- **Aksi:** ${us.action || '-'}\n- **Manfaat:** ${us.benefit || '-'}\n${us.acceptanceCriteria?.length ? `\n**Acceptance Criteria:**\n` + us.acceptanceCriteria.map((ac: string) => `- ${ac}`).join('\n') : ''}\n\n${gherkinLines}`;
+    }) ?? []),
+    ``,
+    `---`,
+    ``,
     `## Tech Requirements`,
     ``,
     ...(content.techRequirements?.map((t: string) => `- ${t}`) ?? []),
@@ -891,10 +894,193 @@ app.get('/api/projects/:id/brd/download', requireUser, async (req: AuthedRequest
     ``,
     ...(content.outOfScope?.map((o: string) => `- ${o}`) ?? []),
   ].join('\n');
+}
+
+function buildUserStoriesMarkdown(project: { name: string }, brd: { content: any } | null): string {
+  const content = (brd?.content ?? {}) as any;
+  const stories = content.userStories ?? [];
+  const lines = [
+    `# User Stories — ${project.name}`,
+    ``,
+    `Dokumen spesifikasi user story terperinci dengan skenario Gherkin (Given/When/Then).`,
+    ``,
+  ];
+
+  if (stories.length === 0) {
+    lines.push(`(Belum ada user story yang dibuat)`);
+    return lines.join('\n');
+  }
+
+  for (const us of stories) {
+    lines.push(`## [${us.id}] ${us.persona || 'Pengguna'}`);
+    lines.push(`- **Sebagai:** ${us.persona || '-'}`);
+    lines.push(`- **Saya ingin:** ${us.action || '-'}`);
+    lines.push(`- **Supaya:** ${us.benefit || '-'}`);
+    lines.push(``);
+
+    if (us.acceptanceCriteria && us.acceptanceCriteria.length > 0) {
+      lines.push(`### Acceptance Criteria`);
+      for (const ac of us.acceptanceCriteria) {
+        lines.push(`- ${ac}`);
+      }
+      lines.push(``);
+    }
+
+    if (us.gherkin && us.gherkin.length > 0) {
+      lines.push(`### Skenario Gherkin`);
+      for (const g of us.gherkin) {
+        lines.push(`#### Scenario: ${g.title || 'Skenario'}`);
+        lines.push(`\`\`\`gherkin`);
+        lines.push(`Given ${g.given}`);
+        lines.push(`When ${g.when}`);
+        lines.push(`Then ${g.then}`);
+        lines.push(`\`\`\``);
+        lines.push(``);
+      }
+    }
+    lines.push(`---`);
+    lines.push(``);
+  }
+
+  return lines.join('\n');
+}
+
+function buildTasksMarkdown(project: { name: string }, tasks: any[]): string {
+  const lines = [
+    `# Daftar Atomic Tasks — ${project.name}`,
+    ``,
+    `Total Tasks: ${tasks.length}`,
+    ``,
+  ];
+
+  if (tasks.length === 0) {
+    lines.push(`(Belum ada task yang dibuat)`);
+    return lines.join('\n');
+  }
+
+  for (const t of tasks) {
+    const aiCtx = (t.aiContext ?? {}) as any;
+    lines.push(`## [${t.order}] ${t.title} (${t.layer})`);
+    lines.push(`- **ID:** \`${t.id}\``);
+    lines.push(`- **Status:** ${t.status}`);
+    lines.push(`- **Deskripsi:** ${t.description || '-'}`);
+    lines.push(``);
+
+    if (aiCtx.files_to_create?.length) {
+      lines.push(`### Files to Create`);
+      lines.push(aiCtx.files_to_create.map((f: string) => `- \`${f}\``).join('\n'));
+      lines.push(``);
+    }
+    if (aiCtx.files_to_modify?.length) {
+      lines.push(`### Files to Modify`);
+      lines.push(aiCtx.files_to_modify.map((f: string) => `- \`${f}\``).join('\n'));
+      lines.push(``);
+    }
+    if (aiCtx.forbidden?.length) {
+      lines.push(`### Forbidden Files`);
+      lines.push(aiCtx.forbidden.map((f: string) => `- \`${f}\``).join('\n'));
+      lines.push(``);
+    }
+    if (t.acceptanceCriteria && Array.isArray(t.acceptanceCriteria) && t.acceptanceCriteria.length) {
+      lines.push(`### Acceptance Criteria`);
+      lines.push(t.acceptanceCriteria.map((ac: string) => `- ${ac}`).join('\n'));
+      lines.push(``);
+    }
+    if (aiCtx.validation_commands?.length) {
+      lines.push(`### Validation Commands`);
+      lines.push(`\`\`\`bash`);
+      lines.push(aiCtx.validation_commands.join('\n'));
+      lines.push(`\`\`\``);
+      lines.push(``);
+    }
+    lines.push(`---`);
+    lines.push(``);
+  }
+
+  return lines.join('\n');
+}
+
+// ============================================================
+// User endpoint: download BRD sebagai .md file
+// ============================================================
+app.get('/api/projects/:id/brd/download', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: { brd: true },
+  });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+  if (!project.brd) {
+    return res.status(400).json({ error: 'BRD belum ada. Generate BRD dulu.' });
+  }
+
+  const md = buildBrdMarkdown(project, project.brd);
 
   res.setHeader('Content-Type', 'text/markdown');
   res.setHeader('Content-Disposition', `attachment; filename="${project.name.replace(/\s+/g, '_')}_BRD.md"`);
   res.send(md);
+});
+
+// ============================================================
+// User endpoint: download paket lengkap (.zip) -> BRD.md, USER-STORIES.md, TASKS.md
+// ============================================================
+app.get('/api/projects/:id/export.zip', requireUser, async (req: AuthedRequest, res) => {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: {
+      brd: true,
+      tasks: {
+        orderBy: { order: 'asc' },
+      },
+    },
+  });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  const brdMd = project.brd ? buildBrdMarkdown(project, project.brd) : '# BRD Belum Dibuat\n';
+  const userStoriesMd = buildUserStoriesMarkdown(project, project.brd);
+  const tasksMd = buildTasksMarkdown(project, project.tasks);
+
+  const zipBuffer = buildZip([
+    { name: 'BRD.md', content: brdMd },
+    { name: 'USER-STORIES.md', content: userStoriesMd },
+    { name: 'TASKS.md', content: tasksMd },
+  ]);
+
+  const filename = `${project.name.replace(/\s+/g, '_')}_paket.zip`;
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', String(zipBuffer.length));
+  res.send(zipBuffer);
+});
+
+// ============================================================
+// User endpoint: unlock tahap sebelumnya (mundur step)
+// ============================================================
+const WizardStepBody = z.object({
+  step: z.enum(['chat', 'techstack', 'brd', 'tree', 'board']),
+});
+
+app.post('/api/projects/:id/wizard-step', requireUser, async (req: AuthedRequest, res) => {
+  const parsed = WizardStepBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Step tidak valid', detail: parsed.error.flatten() });
+  }
+
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: { chatSession: { select: { id: true } } },
+  });
+  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  await prisma.project.update({
+    where: { id: project.id },
+    data: { wizardStep: parsed.data.step },
+  });
+
+  res.json({
+    ok: true,
+    wizardStep: parsed.data.step,
+    chatSessionId: project.chatSession?.id ?? null,
+  });
 });
 
 // ============================================================
@@ -1423,7 +1609,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
       }
     }
 
-    await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'guide' } });
+    await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'board' } });
     res.json({ ok: true, count: generated.length, cleanupWarnings: cleanupResult.warnings });
   } catch (err) {
     res.status(502).json({ error: 'AI gagal menghasilkan tasks.', detail: (err as Error).message });

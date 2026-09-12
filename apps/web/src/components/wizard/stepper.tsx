@@ -1,4 +1,4 @@
-// Stepper indikator langkah wizard (Chat → Tech Stack → BRD → Tree → Board → Guide)
+// Stepper indikator langkah wizard (Chat → Tech Stack → BRD → Struktur → Board)
 import { useLocation } from 'react-router-dom';
 import { Check, Circle } from 'lucide-react';
 
@@ -8,7 +8,6 @@ const STEPS = [
   { id: 'brd', label: 'BRD', pathMatch: '/projects/:id/brd' },
   { id: 'tree', label: 'Struktur', pathMatch: '/projects/:id/tree' },
   { id: 'board', label: 'Board', pathMatch: '/projects/:id/board' },
-  { id: 'guide', label: 'Panduan', pathMatch: '/projects/:id/guide' },
 ];
 
 export function Stepper() {

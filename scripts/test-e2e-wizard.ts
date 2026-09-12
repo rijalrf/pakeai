@@ -110,6 +110,18 @@ async function runTest() {
   const brdGetJson = await brdGetRes.json();
   assert(brdGetJson.brd?.content, 'BRD content harus ada');
   console.log('BRD idempotent check OK: content ditemukan tanpa generate ulang.');
+  if (brdGetJson.brd.content.userStories?.length > 0) {
+    console.log(`User stories count: ${brdGetJson.brd.content.userStories.length}`);
+    const gherkinCount = brdGetJson.brd.content.userStories.filter((us: any) => us.gherkin && us.gherkin.length > 0).length;
+    console.log(`User stories dengan skenario Gherkin: ${gherkinCount}`);
+  }
+
+  // Test Download BRD .md
+  const brdDownloadRes = await authedFetch(`/api/projects/${projectId}/brd/download`);
+  assert.strictEqual(brdDownloadRes.status, 200, 'Download BRD status harus 200');
+  const brdMdText = await brdDownloadRes.text();
+  assert(brdMdText.includes('# Business Requirements Document'), 'Konten BRD.md harus valid');
+  console.log('Download BRD .md OK.');
 
   console.log('\n--- 7. TEST TREE DIAGRAM (GENERATE & IDEMPOTENT) ---');
   // Generate Tree
@@ -139,6 +151,33 @@ async function runTest() {
   const tasksGetJson = await tasksGetRes.json();
   assert(tasksGetJson.tasks.length > 0, 'Tasks harus ada');
   console.log(`Tasks idempotent check OK: ${tasksGetJson.tasks.length} tasks.`);
+
+  console.log('\n--- 8B. TEST EXPORT PAKET ZIP & WIZARD STEP UNLOCK ---');
+  // Test Download Paket ZIP
+  const zipRes = await authedFetch(`/api/projects/${projectId}/export.zip`);
+  assert.strictEqual(zipRes.status, 200, 'Download ZIP status harus 200');
+  const contentType = zipRes.headers.get('content-type');
+  assert(contentType?.includes('application/zip'), 'Content-Type harus application/zip');
+  const zipArrayBuffer = await zipRes.arrayBuffer();
+  assert(zipArrayBuffer.byteLength > 100, 'Ukuran file ZIP harus valid');
+  console.log(`Download Paket ZIP OK: ${zipArrayBuffer.byteLength} bytes.`);
+
+  // Test Mundur Wizard Step (Unlock Tahap)
+  const stepBackRes = await authedFetch(`/api/projects/${projectId}/wizard-step`, {
+    method: 'POST',
+    body: JSON.stringify({ step: 'tree' }),
+  });
+  assert.strictEqual(stepBackRes.status, 200, 'Step back status harus 200');
+  const stepBackJson = await stepBackRes.json();
+  assert.strictEqual(stepBackJson.wizardStep, 'tree', 'Wizard step harus menjadi tree');
+  console.log('Unlock tahap sebelumnya (wizard-step: tree) OK.');
+
+  // Kembalikan ke board
+  await authedFetch(`/api/projects/${projectId}/wizard-step`, {
+    method: 'POST',
+    body: JSON.stringify({ step: 'board' }),
+  });
+  console.log('Restore wizard-step ke board OK.');
 
   console.log('\n--- 9. TEST CLI TOKEN & MASTER PROMPT ---');
   // Generate token untuk CLI agent
