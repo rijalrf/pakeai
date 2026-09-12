@@ -31,61 +31,6 @@ Aturan Interaksi:
 6. Jawab HANYA dengan JSON valid sesuai skema ChatMessageSchema: {"kind":"text"|"form"|"done", "content": "...", "payload": ...}. Tanpa format markdown atau code block di luar JSON.`;
 
 // ============================================================
-// GENERATE INTERVIEW DARI HASIL CHAT
-// ============================================================
-
-export const GENERATE_INTERVIEW_FROM_CHAT_PROMPT = `Anda adalah Principal Product Architect AI. Berdasarkan hasil brainstorming chat antara user dan pake.ai, generate 5-8 pertanyaan interview untuk mematangkan kebutuhan fungsional dan teknis aplikasi.
-
-Input:
-- Ringkasan ide: {summary}
-- Riwayat chat: {messages}
-
-Tugas:
-1. Buat 5-8 pertanyaan kritis yang belum tergali dari chat.
-2. WAJIB sertakan pertanyaan arsitektural/teknis mendasar:
-   - Entitas/Data utama apa saja yang perlu disimpan dan dikelola (misal: Transaksi & Produk, Pengguna & Proyek, Pelanggan & Tagihan)?
-   - Mekanisme akses/autentikasi pengguna (misal: Tanpa login, Login Email & Password sederhana, Akun Multi-role Admin & Member)?
-   - Fitur inti yang menjadi syarat mutlak MVP versi pertama.
-3. Setiap pertanyaan harus punya context (mis. target_user, data_entities, auth_method, platform, core_workflow).
-4. Setiap pertanyaan HANYA memiliki tepat 3 opsi pilihan di array "options" yang paling relevan dan mungkin untuk aplikasi user. JANGAN sertakan opsi "Lainnya" (sistem UI otomatis menambahkan opsi ke-4 "Lainnya").
-5. Tentukan apakah pertanyaan wajib ("required": true) untuk kebutuhan inti aplikasi, atau opsional ("required": false) untuk fitur pelengkap. Minimal 3 pertanyaan harus bernilai "required": true.
-6. Tentukan "type": "radio" jika user hanya boleh memilih 1 opsi, atau "checkbox" jika boleh memilih lebih dari 1 opsi.
-7. Output format JSON:
-{
-  "questions": [
-    {
-      "question": "Siapa target pengguna utama aplikasi?",
-      "options": ["Masyarakat umum", "Siswa dan guru internal", "Staf dan karyawan perusahaan"],
-      "required": true,
-      "type": "radio",
-      "context": "target_user"
-    }
-  ]
-}
-
-Pastikan pertanyaan relevan dengan konteks chat dan membantu memperjelas requirements.`;
-
-// ============================================================
-// REKOMENDASI JAWABAN INTERVIEW
-// ============================================================
-
-export const RECOMMEND_INTERVIEW_ANSWER_PROMPT = `Anda adalah product manager yang berpengalaman membantu pemula non-teknis. Berikan rekomendasi jawaban untuk pertanyaan interview berdasarkan konteks chat sebelumnya.
-
-Input:
-- Pertanyaan: "{question}"
-- Konteks chat: {chatContext}
-
-Tugas:
-1. Saran jawaban yang paling masuk akal berdasarkan pola umum aplikasi sejenis (berdasarkan context question).
-2. Jelaskan reasoning di balik rekomendasi.
-3. Output JSON:
-{
-  "question": "...",
-  "answer": "saran jawaban optimal",
-  "reasoning": "mengapa saran ini cocok"
-}`;
-
-// ============================================================
 // REKOMENDASI TECH STACK
 // ============================================================
 

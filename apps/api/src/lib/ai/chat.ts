@@ -1,12 +1,10 @@
-// Fungsi AI untuk chat session: replyChat, generateInterviewFromChat, recommendAnswer, dll
+// Fungsi AI untuk chat session: replyChat, finalizeChatSession, recommendTechStack, dll
 import { generateJson, generateText } from './ai-service';
-import { ChatMessageSchema, TreeDataSchema, type TreeData, GenerateInterviewSchema, RecommendTechStackSchema } from './schemas';
+import { ChatMessageSchema, TreeDataSchema, type TreeData, RecommendTechStackSchema } from './schemas';
 import z from 'zod';
 import crypto from 'node:crypto';
 import {
   CHAT_PERSONA_PROMPT,
-  GENERATE_INTERVIEW_FROM_CHAT_PROMPT,
-  RECOMMEND_INTERVIEW_ANSWER_PROMPT,
   RECOMMEND_TECH_STACK_PROMPT,
   GENERATE_TREE_PROMPT,
 } from './prompts';
@@ -109,71 +107,6 @@ Output JSON WAJIB:
   });
 
   return { projectId: project.id };
-}
-
-// ===============================================
-// GENERATE INTERVIEW FROM CHAT
-// ===============================================
-
-export async function generateInterviewFromChat(projectId: string): Promise<
-  {
-    question: string;
-    context?: string;
-    answer: string;
-    options?: string[];
-    required?: boolean;
-    type?: 'radio' | 'checkbox';
-    skipped?: boolean;
-  }[]
-> {
-  const session = await prisma.chatSession.findFirst({
-    where: { projectId, status: 'finalized' },
-    include: { messages: { orderBy: { createdAt: 'asc' } } },
-  });
-
-  if (!session) {
-    throw new Error('Chat session tidak ditemukan');
-  }
-
-  const summary = session.summary || '';
-  const messages = session.messages.map(m => `${m.role}: ${m.content}`).join('\n');
-
-  const result = await generateJson({
-    system: GENERATE_INTERVIEW_FROM_CHAT_PROMPT,
-    user: `Ringkasan ide: ${summary}\n\nRiwayat chat:\n${messages}`,
-    schema: GenerateInterviewSchema,
-    maxRetries: 2,
-  });
-
-  return result.questions;
-}
-
-// ===============================================
-// RECOMMEND INTERVIEW ANSWER
-// ===============================================
-
-export async function recommendInterviewAnswer(projectId: string, question: string): Promise<{ answer: string; reasoning: string }> {
-  const session = await prisma.chatSession.findFirst({
-    where: { projectId, status: 'finalized' },
-    include: { messages: { orderBy: { createdAt: 'asc' } } },
-  });
-
-  const chatContext = session
-    ? session.messages.map((m) => `${m.role}: ${m.content}`).join('\n')
-    : '';
-
-  const result = await generateJson({
-    system: RECOMMEND_INTERVIEW_ANSWER_PROMPT,
-    user: `Pertanyaan: "${question}"\nKonteks chat:\n${chatContext}`,
-    schema: z.object({
-      question: z.string().optional(),
-      answer: z.string(),
-      reasoning: z.string(),
-    }),
-    maxRetries: 2,
-  });
-
-  return { answer: result.answer, reasoning: result.reasoning };
 }
 
 // ===============================================

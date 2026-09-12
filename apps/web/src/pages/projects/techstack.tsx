@@ -24,16 +24,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/http';
 import { cn } from '@/lib/utils';
-
-const STAGE_ORDER: Record<string, number> = {
-  chat: 0,
-  techstack: 1,
-  brd: 2,
-  tree: 3,
-  board: 4,
-  guide: 5,
-  done: 6,
-};
+import { isStageLocked } from '@/lib/constants';
 
 // Preset kategori untuk form manual
 const PRESET_CATEGORIES = [
@@ -103,7 +94,7 @@ export function TechStackPage() {
           `/api/projects/${projectId}`
         );
         const currentStep = json.project?.wizardStep || 'techstack';
-        const locked = (STAGE_ORDER[currentStep] ?? 2) > STAGE_ORDER.techstack;
+        const locked = isStageLocked(currentStep, 'techstack');
         setIsLocked(locked);
 
         const existing = json.project?.stacks || [];

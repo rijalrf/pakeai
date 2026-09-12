@@ -88,44 +88,15 @@ export const TreeDataSchema = z.object({
 export type TreeData = z.infer<typeof TreeDataSchema>;
 
 // ===============================================
-// Interview & Tech Stack Recommendations
+// Tech Stack Recommendations
 // ===============================================
-
-export const InterviewAnswerSchema = z.object({
-  question: z.string(),
-  answer: z.string().default(''),
-  context: z.string().optional(),
-  options: z.array(z.string()).default([]),
-  required: z.boolean().optional().default(false),
-  type: z.enum(['radio', 'checkbox']).optional().default('radio'),
-  skipped: z.boolean().optional().default(false),
-  recommended: z.boolean().optional().default(false),
-}).transform((q) => {
-  const filtered = (q.options || [])
-    .filter((opt) => !/^lainnya/i.test(opt.trim()) && !/^other/i.test(opt.trim()))
-    .slice(0, 3);
-  return {
-    ...q,
-    options: filtered,
-  };
-});
 
 export const RecommendationResponseBase = z.object({
   reasoning: z.string(),
 });
 
-export const RecommendInterviewAnswerSchema = z.object({
-  question: z.string().optional(),
-  answer: z.string(),
-  reasoning: z.string(),
-});
-
 export const RecommendTechStackSchema = RecommendationResponseBase.extend({
   techStack: z.array(z.string()),
-});
-
-export const GenerateInterviewSchema = z.object({
-  questions: z.array(InterviewAnswerSchema).max(8),
 });
 
 // Export semua schema yang mungkin dipakai di berbagai tempat

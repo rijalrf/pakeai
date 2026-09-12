@@ -1,0 +1,28 @@
+// Shared constants & helpers untuk wizard stages
+
+export const STAGE_ORDER: Record<string, number> = {
+  chat: 0,
+  techstack: 1,
+  brd: 2,
+  tree: 3,
+  board: 4,
+  guide: 5,
+  done: 6,
+};
+
+export const STAGE_LABELS: Record<string, string> = {
+  chat: 'Brainstorming',
+  interview: 'Interview',
+  techstack: 'Tech Stack',
+  brd: 'Dokumen BRD',
+  tree: 'Diagram Struktur',
+  board: 'Board Task',
+  guide: 'Panduan Eksekusi',
+  done: 'Selesai',
+};
+
+export function isStageLocked(currentStep: string | undefined | null, targetStage: string): boolean {
+  const currentRank = STAGE_ORDER[currentStep ?? 'techstack'] ?? 1;
+  const targetRank = STAGE_ORDER[targetStage] ?? 0;
+  return currentRank > targetRank;
+}

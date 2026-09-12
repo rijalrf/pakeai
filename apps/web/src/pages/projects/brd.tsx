@@ -6,16 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, ArrowRight, Lock } from 'lucide-react';
-
-const STAGE_ORDER: Record<string, number> = {
-  chat: 0,
-  techstack: 1,
-  brd: 2,
-  tree: 3,
-  board: 4,
-  guide: 5,
-  done: 6,
-};
+import { isStageLocked } from '@/lib/constants';
 
 type BrdContent = {
   overview?: string;
@@ -53,7 +44,7 @@ export function BrdPage() {
       try {
         const projectRes = await api<{ project?: { wizardStep?: string } }>(`/api/projects/${projectId}`);
         const currentStep = projectRes.project?.wizardStep || 'brd';
-        const locked = (STAGE_ORDER[currentStep] ?? 3) > STAGE_ORDER.brd;
+        const locked = isStageLocked(currentStep, 'brd');
         setIsLocked(locked);
 
         const json = await api<{ brd?: { content: unknown } }>(`/api/projects/${projectId}/brd`);

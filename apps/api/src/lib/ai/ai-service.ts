@@ -26,8 +26,6 @@ const REASONING_AGENTS = new Set([
   'TechStackArchitect',
   'replyChat',
   'finalizeChatSession',
-  'generateInterviewFromChat',
-  'recommendInterviewAnswer',
   'generateTreeFromBrd',
 ]);
 

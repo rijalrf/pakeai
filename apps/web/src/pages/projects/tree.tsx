@@ -19,18 +19,9 @@ import {
   ListTree,
   Lock,
 } from 'lucide-react';
-
-const STAGE_ORDER: Record<string, number> = {
-  chat: 0,
-  techstack: 1,
-  brd: 2,
-  tree: 3,
-  board: 4,
-  guide: 5,
-  done: 6,
-};
 import { api } from '@/lib/http';
 import { cn } from '@/lib/utils';
+import { isStageLocked } from '@/lib/constants';
 
 type TreeNode = {
   id: string;
@@ -75,7 +66,7 @@ export function TreePage() {
       try {
         const projectRes = await api<{ project?: { wizardStep?: string } }>(`/api/projects/${projectId}`);
         const currentStep = projectRes.project?.wizardStep || 'tree';
-        const locked = (STAGE_ORDER[currentStep] ?? 4) > STAGE_ORDER.tree;
+        const locked = isStageLocked(currentStep, 'tree');
         setIsLocked(locked);
 
         const json = await api<{ nodes?: TreeNode[] }>(`/api/projects/${projectId}/tree`);

@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, ArrowRight } from 'lucide-react';
+import { STAGE_LABELS } from '@/lib/constants';
 
 type Project = {
   id: string;
@@ -14,16 +15,6 @@ type Project = {
   status: string;
   wizardStep?: string;
   updatedAt: string;
-};
-
-const STAGE_LABELS: Record<string, string> = {
-  chat: 'Brainstorming',
-  techstack: 'Tech Stack',
-  brd: 'Dokumen BRD',
-  tree: 'Diagram Struktur',
-  board: 'Board Task',
-  guide: 'Panduan Eksekusi',
-  done: 'Selesai',
 };
 
 function getProjectStageUrl(p: Project): string {

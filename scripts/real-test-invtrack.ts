@@ -2,8 +2,8 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const API_BASE = 'http://localhost:6655';
-const TARGET_DIR = '/mnt/c/Users/Jerry/Documents/CODING/pake-ai/invtrack';
+const API_BASE = process.env.PAKEAI_API_URL || 'http://localhost:6655';
+const TARGET_DIR = process.env.TARGET_DIR || process.argv[2] || path.resolve(process.cwd(), 'tmp/invtrack');
 
 async function run() {
   console.log('=== 1. REGISTER & LOGIN USER BARU ===');
