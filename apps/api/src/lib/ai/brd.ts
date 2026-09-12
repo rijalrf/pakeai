@@ -56,32 +56,32 @@ export type BrdData = z.infer<typeof BrdSchema>;
 
 export async function generateBRDFromDiscovery(args: {
   idea: string;
-  questions: { question: string; answer: string }[];
+  questions?: { question: string; answer: string }[];
   projectId?: string;
   techStack?: string[];
   chatHistory?: string;
 }): Promise<BrdData> {
-  const qaText = args.questions
-    .map((q, i) => `${i + 1}. ${q.question}\n   Jawaban: ${q.answer}`)
-    .join('\n');
+  const qaText = args.questions && args.questions.length > 0
+    ? `\nJAWABAN PERTANYAAN TAMBAHAN:\n` + args.questions
+        .map((q, i) => `${i + 1}. ${q.question}\n   Jawaban: ${q.answer}`)
+        .join('\n')
+    : '';
 
   const stackText = args.techStack?.length
     ? `\nTECH STACK TERPILIH:\n${args.techStack.join('\n')}`
     : '\nTECH STACK: SQLite + Prisma ORM, Express TypeScript, React TypeScript, Tailwind CSS';
 
   const chatText = args.chatHistory
-    ? `\nRIWAYAT BRAINSTORMING AWAL:\n${args.chatHistory}`
+    ? `\nRIWAYAT PERCAKAPAN LENGKAP DENGAN PENGGUNA (SUMBER KEBUTUHAN UTAMA):\n${args.chatHistory}`
     : '';
 
   const system = `Anda adalah Principal Systems Architect dan Lead Product Manager. Hasilkan Business Requirements Document (BRD) canonical teknis yang sangat presisi dan menjadi source of truth mutlak bagi AI coding agent downstream.
-Wajib menyertakan rancangan model data (dataModels) dan spesifikasi endpoint API (apiEndpoints) konkret yang sinkron dengan functional requirements dan aturan bisnis.`;
+Wajib menyertakan rancangan model data (dataModels) dan spesifikasi endpoint API (apiEndpoints) konkret yang sinkron dengan functional requirements dan aturan bisnis. Gali sedalam mungkin dari riwayat percakapan pengguna.`;
 
   const user = `IDE USER:
 ${args.idea}
 ${chatText}
 ${stackText}
-
-JAWABAN DISCOVERY:
 ${qaText}
 
 Schema JSON yang WAJIB diikuti:
@@ -128,7 +128,13 @@ Schema JSON yang WAJIB diikuti:
     }
   ],
   "techRequirements": string[] (tech stack yang digunakan),
-  "nonFunctional": string[] (kecepatan respon, keamanan, reliabilitas),
+  "nonFunctional": string[] (WAJIB mencakup item berikut jika relevan:
+    - "Keamanan: JWT_SECRET wajib dari environment variable, dilarang hardcode atau fallback default. Password wajib di-hash dengan bcrypt."
+    - "Pagination: Semua endpoint GET yang mengembalikan daftar WAJIB mendukung query parameter ?page=&limit= dengan default limit 20."
+    - "Sorting: Endpoint GET list HARUS mendukung parameter ?sortBy=&order=asc|desc."
+    - "Error handling: Semua error API mengembalikan format JSON konsisten {error: string} dengan HTTP status code yang tepat."
+    - "Reliabilitas: Operasi yang melibatkan perubahan stok/saldo/kuota WAJIB atomik dalam database transaction."
+  ),
   "outOfScope": string[] (fitur atau lingkup yang DILARANG dikerjakan)
 }
 
@@ -136,7 +142,10 @@ ATURAN KRITIS:
 1. Pastikan ID requirement berurutan (FR-001, FR-002...) dan aturan bisnis (BR-001, BR-002...).
 2. Minimal buat 2-5 dataModels yang mencakup seluruh domain problem.
 3. Minimal buat 4-10 apiEndpoints yang memetakan seluruh operasi CRUD dan flow bisnis utama.
-4. Kembalikan HANYA JSON valid.`;
+4. Jika aplikasi memiliki autentikasi (login/register), BRD WAJIB menyertakan fitur manajemen pengguna (minimal: register, lihat profil, ubah password) — bukan hanya login via seed.
+5. businessRules WAJIB menyertakan aturan integritas referensial: jika entitas A memiliki relasi aktif ke entitas B (misal: peminjaman PENDING), maka penghapusan entitas B harus DITOLAK atau memerlukan penyelesaian relasi terlebih dahulu. Dilarang silent cascade delete pada data berelasi aktif.
+6. businessRules WAJIB menyertakan aturan atomisitas untuk operasi konkuren: jika dua user dapat mengubah resource yang sama secara bersamaan (misal: approve peminjaman yang mengurangi stok), aturan bisnis harus menyebutkan bahwa operasi tersebut wajib atomik dan mencegah race condition.
+7. Kembalikan HANYA JSON valid.`;
 
   return generateJson({ system, user, schema: BrdSchema, agentName: 'CanonicalBrdSpec', projectId: args.projectId });
 }

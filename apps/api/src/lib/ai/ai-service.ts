@@ -22,12 +22,9 @@ const REASONING_AGENTS = new Set([
   'CanonicalBrdSpec',
   'FeatureExecutionGraph',
   'UiSpecArchitect',
-  'DiscoveryQuestions',
   'TechStackArchitect',
   'replyChat',
   'finalizeChatSession',
-  'generateInterviewFromChat',
-  'recommendInterviewAnswer',
   'generateTreeFromBrd',
 ]);
 

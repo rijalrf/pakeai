@@ -82,39 +82,9 @@ async function runTest() {
   const projectJson = await projectRes.json();
   console.log('Nama project dari AI:', projectJson.project.name);
   console.log('Summary project:', projectJson.project.description?.substring(0, 100));
-  assert.strictEqual(projectJson.project.wizardStep, 'interview', 'wizardStep harus interview');
+  assert.strictEqual(projectJson.project.wizardStep, 'techstack', 'wizardStep harus langsung techstack setelah interview dihapus');
 
-  console.log('\n--- 4. TEST INTERVIEW ---');
-  // Generate interview
-  const interviewGenRes = await authedFetch(`/api/projects/${projectId}/interview/generate`, { method: 'POST' });
-  assert.strictEqual(interviewGenRes.status, 200, 'Interview generate status harus 200');
-  const interviewGenJson = await interviewGenRes.json();
-  assert(interviewGenJson.questions.length > 0, 'Harus ada pertanyaan interview yang di-generate');
-  console.log(`Pertanyaan interview di-generate: ${interviewGenJson.questions.length} pertanyaan`);
-
-  // Test rekomendasi AI untuk pertanyaan pertama
-  const recommendRes = await authedFetch(`/api/projects/${projectId}/interview/recommend`, {
-    method: 'POST',
-    body: JSON.stringify({ questionIndex: 0 }),
-  });
-  assert.strictEqual(recommendRes.status, 200, 'Recommend answer status harus 200');
-  const recJson = await recommendRes.json();
-  console.log('Rekomendasi AI pertanyaan #1:', recJson.recommendation);
-  console.log('Reasoning:', recJson.reasoning);
-
-  // Simpan jawaban interview
-  const answers = interviewGenJson.questions.map((q: any, i: number) => ({
-    questionId: q.id,
-    answer: i === 0 ? recJson.recommendation : 'Jawaban tester untuk kebutuhan bisnis',
-  }));
-  const saveInterviewRes = await authedFetch(`/api/projects/${projectId}/interview`, {
-    method: 'PUT',
-    body: JSON.stringify({ answers }),
-  });
-  assert.strictEqual(saveInterviewRes.status, 200, 'Save interview status harus 200');
-  console.log('Jawaban interview tersimpan.');
-
-  console.log('\n--- 5. TEST TECH STACK ---');
+  console.log('\n--- 4. TEST TECH STACK (DIRECT DARI CHAT) ---');
   // Rekomendasi tech stack
   const stackRecRes = await authedFetch(`/api/projects/${projectId}/techstack/recommend`, { method: 'POST' });
   assert.strictEqual(stackRecRes.status, 200, 'Tech stack recommend harus 200');
@@ -129,7 +99,7 @@ async function runTest() {
   assert.strictEqual(saveStackRes.status, 200, 'Save tech stack status harus 200');
   console.log('Tech stack tersimpan.');
 
-  console.log('\n--- 6. TEST BRD (GENERATE & IDEMPOTENT) ---');
+  console.log('\n--- 5. TEST BRD (GENERATE & IDEMPOTENT DARI CHAT HISTORY) ---');
   // Generate BRD
   const brdGenRes = await authedFetch(`/api/projects/${projectId}/brd/generate`, { method: 'POST' });
   assert.strictEqual(brdGenRes.status === 200 || brdGenRes.status === 201, true, 'BRD generate status harus 200/201');

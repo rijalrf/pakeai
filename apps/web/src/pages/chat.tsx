@@ -201,7 +201,7 @@ export function ChatPage() {
       });
 
       if (json.projectId) {
-        navigate(`/projects/${json.projectId}/interview`);
+        navigate(`/projects/${json.projectId}/techstack`);
       } else {
         setIsFinalizing(false);
         console.error('Gagal finalisasi project:', json);
@@ -309,7 +309,7 @@ export function ChatPage() {
                 <div className="flex flex-col items-center gap-3 pt-6 pb-2 text-center">
                   <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 max-w-lg">
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Rancangan awal sudah siap. Anda masih bisa melanjutkan chat di bawah jika ada yang ingin dikonfirmasi atau diubah, atau langsung klik tombol di bawah untuk masuk ke tahap interview.
+                      Kebutuhan aplikasi sudah dirumuskan secara detail. Anda masih bisa melanjutkan percakapan jika ada detail tambahan, atau langsung klik tombol di bawah untuk memilih tech stack.
                     </p>
                   </div>
                   <Button
@@ -323,7 +323,7 @@ export function ChatPage() {
                     ) : (
                       <ArrowRight className="h-4 w-4" />
                     )}
-                    Lanjut ke Interview
+                    Lanjut ke Tech Stack
                   </Button>
                 </div>
               )}

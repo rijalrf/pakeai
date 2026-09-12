@@ -1,4 +1,4 @@
-// BRD page: View atau auto-generate BRD dari interview + tech stack
+// BRD page: View atau auto-generate BRD dari chat history + tech stack
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/http';
@@ -6,17 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, ArrowRight, Lock } from 'lucide-react';
-
-const STAGE_ORDER: Record<string, number> = {
-  chat: 0,
-  interview: 1,
-  techstack: 2,
-  brd: 3,
-  tree: 4,
-  board: 5,
-  guide: 6,
-  done: 7,
-};
+import { isStageLocked } from '@/lib/constants';
 
 type BrdContent = {
   overview?: string;
@@ -54,7 +44,7 @@ export function BrdPage() {
       try {
         const projectRes = await api<{ project?: { wizardStep?: string } }>(`/api/projects/${projectId}`);
         const currentStep = projectRes.project?.wizardStep || 'brd';
-        const locked = (STAGE_ORDER[currentStep] ?? 3) > STAGE_ORDER.brd;
+        const locked = isStageLocked(currentStep, 'brd');
         setIsLocked(locked);
 
         const json = await api<{ brd?: { content: unknown } }>(`/api/projects/${projectId}/brd`);

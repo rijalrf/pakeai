@@ -5,7 +5,6 @@ import { HomePage } from '@/pages/home';
 import { ProfilePage } from '@/pages/profile';
 import { ProjectsPage } from '@/pages/projects/index';
 import { ChatPage } from '@/pages/chat';
-import { InterviewPage } from '@/pages/projects/interview';
 import { TechStackPage } from '@/pages/projects/techstack';
 import { BrdPage } from '@/pages/projects/brd';
 import { TreePage } from '@/pages/projects/tree';
@@ -39,7 +38,6 @@ export function App() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/chat/:sessionId" element={<ChatPage />} />
-        <Route path="/projects/:projectId/interview" element={<InterviewPage />} />
         <Route path="/projects/:projectId/techstack" element={<TechStackPage />} />
         <Route path="/projects/:projectId/brd" element={<BrdPage />} />
         <Route path="/projects/:projectId/tree" element={<TreePage />} />

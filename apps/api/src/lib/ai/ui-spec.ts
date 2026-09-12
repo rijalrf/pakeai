@@ -31,7 +31,14 @@ export const UiSpecSchema = z.object({
     .default({}),
   accessibility: z
     .array(z.string())
-    .default(['WCAG AA contrast', 'aria-labels on buttons', 'keyboard navigable']),
+    .default([
+      'WCAG AA contrast',
+      'aria-labels on buttons',
+      'keyboard navigable',
+      'htmlFor pada setiap label+input',
+      'skeleton loader untuk loading state',
+      'AlertBanner/Toast untuk error display, dilarang window.alert()',
+    ]),
 });
 
 export type UiSpecData = z.infer<typeof UiSpecSchema>;
@@ -48,9 +55,11 @@ PRINSIP DESIGN SYSTEM & UI CONTRACT:
 1. Mobile-first: Desain tata letak harus bekerja prima pada mobile lalu adaptif ke desktop.
 2. Komponen bersih & reusable: Jangan membuat komponen duplikat hanya karena nama berbeda.
 3. State interaktif lengkap: Setiap halaman wajib memodelkan state 'idle', 'loading', 'error', 'empty', dan 'success'.
-4. Aksesibilitas: Terapkan semantic HTML dan navigasi keyboard.
+4. Aksesibilitas: Terapkan semantic HTML dan navigasi keyboard. Setiap <label> WAJIB punya atribut htmlFor yang terhubung ke id input. Setiap tombol ikon (tanpa teks) WAJIB punya aria-label deskriptif.
 5. Spacing terstandarisasi: Gunakan kelipatan 4px Tailwind (gap-1, gap-2, p-3, p-4, p-6, space-y-4).
-6. Tanpa elemen dekoratif tak berfaedah: Utamakan fungsi, hierarki jelas, dan kejelasan tipografi.`;
+6. Tanpa elemen dekoratif tak berfaedah: Utamakan fungsi, hierarki jelas, dan kejelasan tipografi.
+7. Loading state: Gunakan skeleton loader (placeholder animasi) untuk loading state, BUKAN teks "Loading..." polos. Skeleton harus menyerupai bentuk konten yang akan ditampilkan.
+8. Error display: Gunakan komponen AlertBanner/Toast inline untuk menampilkan error. DILARANG menggunakan window.alert() atau alert() bawaan browser.`;
 
   const user = `NAMA PROJECT: ${args.projectName}
 
@@ -82,7 +91,10 @@ Schema JSON WAJIB:
   "accessibility": [
     "Keyboard tab order",
     "Contrast ratio minimum 4.5:1",
-    "Aria label untuk button icon"
+    "Aria label untuk button icon",
+    "htmlFor + id pada setiap pasangan label-input",
+    "Skeleton loader untuk semua loading state",
+    "Error ditampilkan via AlertBanner/Toast, dilarang window.alert()"
   ]
 }
 

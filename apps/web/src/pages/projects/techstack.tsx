@@ -24,17 +24,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/http';
 import { cn } from '@/lib/utils';
-
-const STAGE_ORDER: Record<string, number> = {
-  chat: 0,
-  interview: 1,
-  techstack: 2,
-  brd: 3,
-  tree: 4,
-  board: 5,
-  guide: 6,
-  done: 7,
-};
+import { isStageLocked } from '@/lib/constants';
 
 // Preset kategori untuk form manual
 const PRESET_CATEGORIES = [
@@ -104,7 +94,7 @@ export function TechStackPage() {
           `/api/projects/${projectId}`
         );
         const currentStep = json.project?.wizardStep || 'techstack';
-        const locked = (STAGE_ORDER[currentStep] ?? 2) > STAGE_ORDER.techstack;
+        const locked = isStageLocked(currentStep, 'techstack');
         setIsLocked(locked);
 
         const existing = json.project?.stacks || [];
@@ -507,7 +497,7 @@ export function TechStackPage() {
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                AI menganalisis ide aplikasi dari obrolan brainstorming dan interview untuk menyusun kombinasi stack paling optimal, stabil, dan modern.
+                AI menganalisis ide aplikasi dari obrolan brainstorming untuk menyusun kombinasi stack paling optimal, stabil, dan modern.
               </p>
             </div>
 

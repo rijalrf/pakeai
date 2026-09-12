@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Plus, ArrowRight } from 'lucide-react';
+import { STAGE_LABELS } from '@/lib/constants';
 
 type Project = {
   id: string;
@@ -16,21 +17,10 @@ type Project = {
   updatedAt: string;
 };
 
-const STAGE_LABELS: Record<string, string> = {
-  chat: 'Brainstorming',
-  interview: 'Interview',
-  techstack: 'Tech Stack',
-  brd: 'Dokumen BRD',
-  tree: 'Diagram Struktur',
-  board: 'Board Task',
-  guide: 'Panduan Eksekusi',
-  done: 'Selesai',
-};
-
 function getProjectStageUrl(p: Project): string {
-  const step = p.wizardStep || 'interview';
+  const step = p.wizardStep || 'techstack';
   if (step === 'done') return `/projects/${p.id}/board`;
-  if (step === 'chat') return `/projects/${p.id}/interview`;
+  if (step === 'chat' || step === 'interview') return `/projects/${p.id}/techstack`;
   return `/projects/${p.id}/${step}`;
 }
 

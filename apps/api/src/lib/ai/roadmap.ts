@@ -35,7 +35,7 @@ Setiap fase mengelompokkan layer delivery secara ketat: BOOTSTRAP -> DATABASE ->
 Setiap fitur dalam fase wajib memodelkan dependensi logis (dependsOn) ke fitur prasyarat agar eksekusi task otonom berjalan berurutan tanpa race conditions atau circular dependency.
 
 ATURAN STRUKTUR LAYER:
-1. Fase 1 WAJIB berlayer 'BOOTSTRAP': inisialisasi project, konfigurasi package.json, tsconfig, struktur folder, variabel lingkungan (.env), dan kontrak tipe bersama.
+1. Fase 1 WAJIB berlayer 'BOOTSTRAP': inisialisasi project, konfigurasi package.json, tsconfig, struktur folder, variabel lingkungan (.env), .gitignore (wajib exclude node_modules, .env, *.db, dist), .env.example, README.md (cara install & jalankan), dan kontrak tipe bersama.
 2. Fase DATABASE: perancangan skema data (Prisma/SQL), migrasi, dan seed data awal. Bergantung pada BOOTSTRAP.
 3. Fase BACKEND: implementasi controller/route API sesuai spesifikasi BRD. Bergantung pada fitur DATABASE terkait.
 4. Fase FRONTEND: implementasi halaman UI, komponen, dan konsumsi API backend. Bergantung pada fitur BACKEND terkait.
