@@ -7,6 +7,18 @@ export interface EssentialValidationResult {
   missing: string[];
 }
 
+function entryFilesFor(stack: StackContract): string[] {
+  const fw = stack.frontend.framework.toLowerCase();
+  if (fw.includes('next')) {
+    // Next.js App Router tidak pakai index.html / main.tsx — entry-nya layout.tsx & page.tsx
+    return ['apps/web/src/app/layout.tsx', 'apps/web/src/app/page.tsx'];
+  }
+  if (fw.includes('vue') || fw.includes('svelte')) {
+    return ['apps/web/index.html', 'apps/web/src/main.ts'];
+  }
+  return ['apps/web/index.html', 'apps/web/src/main.tsx'];
+}
+
 export function validateEssentialFiles(tasks: TaskGen[], stack: StackContract): EssentialValidationResult {
   const allCreated = new Set<string>();
   for (const t of tasks) {
@@ -23,13 +35,8 @@ export function validateEssentialFiles(tasks: TaskGen[], stack: StackContract): 
     if (!allCreated.has(f)) missing.push(f);
   }
 
-  // 2. Frontend core entry files
-  const isVue = stack.frontend.framework.toLowerCase().includes('vue');
-  const feEntryFiles = isVue
-    ? ['apps/web/index.html', 'apps/web/src/main.ts']
-    : ['apps/web/index.html', 'apps/web/src/main.tsx'];
-
-  for (const f of feEntryFiles) {
+  // 2. Frontend core entry files (mengikuti framework kontrak)
+  for (const f of entryFilesFor(stack)) {
     if (!allCreated.has(f)) missing.push(f);
   }
 
@@ -49,34 +56,73 @@ export function validateEssentialFiles(tasks: TaskGen[], stack: StackContract): 
   };
 }
 
+// Task sintetis saat layer target tidak ada sama sekali di hasil AI
+// ponytail: judul/AC generik; perkaya kontennya saat ada kebutuhan layer lain
+function syntheticTask(layer: 'BOOTSTRAP' | 'FRONTEND', files: string[], order: number): TaskGen {
+  return {
+    title: layer === 'BOOTSTRAP' ? 'Bootstrap: File Konfigurasi Esensial' : 'Frontend: Entrypoint & Styling Esensial',
+    description: 'Task sintetis hasil auto-injection karena file esensial tidak tercakup task manapun.',
+    layer,
+    featureId: 'auto-essential',
+    order,
+    requirement_ids: [],
+    depends_on: [],
+    files_to_create: files,
+    files_to_modify: [],
+    files_readonly: [],
+    forbidden: [],
+    implementation_steps: [`Buat file-file berikut sesuai konvensi framework: ${files.join(', ')}`],
+    acceptanceCriteria: [`Semua file berikut ada di disk dan valid: ${files.join(', ')}`],
+    validation_commands: ['npm run build'],
+    definition_of_done: ['File esensial terbuat', 'Build lolos'],
+    out_of_scope: [],
+    apiContracts: [],
+    consumesApis: [],
+  };
+}
+
 export function autoInjectEssentialFiles(tasks: TaskGen[], stack: StackContract, missing: string[]): TaskGen[] {
   if (missing.length === 0 || tasks.length === 0) return tasks;
 
   const updatedTasks = [...tasks];
+  const minOrder = Math.min(...updatedTasks.map((t) => t.order));
 
+  // 1. Inject ke task BOOTSTRAP (immutable copy; buat task sintetis jika layer absen)
   const bootstrapFiles = missing.filter((f) => !f.startsWith('apps/web'));
-  const frontendFiles = missing.filter((f) => f.startsWith('apps/web'));
-
-  // 1. Inject ke task BOOTSTRAP (biasanya order: 1)
   if (bootstrapFiles.length > 0) {
-    const bootstrapTask = updatedTasks.find((t) => t.layer === 'BOOTSTRAP') || updatedTasks[0];
-    const newFiles = Array.from(new Set([...(bootstrapTask.files_to_create || []), ...bootstrapFiles]));
-    bootstrapTask.files_to_create = newFiles;
-    bootstrapTask.implementation_steps = [
-      ...(bootstrapTask.implementation_steps || []),
-      `Pastikan file konfigurasi environment dan repository terbuat: ${bootstrapFiles.join(', ')}`,
-    ];
+    const idx = updatedTasks.findIndex((t) => t.layer === 'BOOTSTRAP');
+    if (idx >= 0) {
+      const t = updatedTasks[idx];
+      updatedTasks[idx] = {
+        ...t,
+        files_to_create: Array.from(new Set([...(t.files_to_create || []), ...bootstrapFiles])),
+        implementation_steps: [
+          ...(t.implementation_steps || []),
+          `Pastikan file konfigurasi environment dan repository terbuat: ${bootstrapFiles.join(', ')}`,
+        ],
+      };
+    } else {
+      updatedTasks.unshift(syntheticTask('BOOTSTRAP', bootstrapFiles, minOrder - 1));
+    }
   }
 
-  // 2. Inject ke task FRONTEND pertama
+  // 2. Inject ke task FRONTEND pertama (immutable copy; buat task sintetis jika layer absen)
+  const frontendFiles = missing.filter((f) => f.startsWith('apps/web'));
   if (frontendFiles.length > 0) {
-    const frontendTask = updatedTasks.find((t) => t.layer === 'FRONTEND') || updatedTasks[0];
-    const newFiles = Array.from(new Set([...(frontendTask.files_to_create || []), ...frontendFiles]));
-    frontendTask.files_to_create = newFiles;
-    frontendTask.implementation_steps = [
-      ...(frontendTask.implementation_steps || []),
-      `Pastikan entrypoint dan konfigurasi styling aplikasi web terbuat: ${frontendFiles.join(', ')}`,
-    ];
+    const idx = updatedTasks.findIndex((t) => t.layer === 'FRONTEND');
+    if (idx >= 0) {
+      const t = updatedTasks[idx];
+      updatedTasks[idx] = {
+        ...t,
+        files_to_create: Array.from(new Set([...(t.files_to_create || []), ...frontendFiles])),
+        implementation_steps: [
+          ...(t.implementation_steps || []),
+          `Pastikan entrypoint dan konfigurasi styling aplikasi web terbuat: ${frontendFiles.join(', ')}`,
+        ],
+      };
+    } else {
+      updatedTasks.unshift(syntheticTask('FRONTEND', frontendFiles, minOrder - 1));
+    }
   }
 
   return updatedTasks;

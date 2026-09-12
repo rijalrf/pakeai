@@ -65,20 +65,25 @@ export function resolveStackContract(
 
   for (const s of stacks) {
     const combined = `${s.category} ${s.name} ${s.version ?? ''}`.toLowerCase();
+    // Abaikan baris legacy yang salah parsing: name masih berisi nama kategori, bukan framework
+    const legacyName = ['frontend', 'backend', 'database', 'styling', 'testing', 'general'].includes(s.name.toLowerCase());
 
     // 1. Frontend Framework
     if (s.category === 'frontend' || combined.includes('frontend')) {
-      if (combined.includes('vue')) {
+      if (combined.includes('next')) {
+        frontendFramework = 'Next.js';
+      } else if (combined.includes('vue')) {
         frontendFramework = 'Vue';
       } else if (combined.includes('svelte')) {
         frontendFramework = 'Svelte';
-      } else if (combined.includes('next')) {
-        frontendFramework = 'Next.js';
       } else if (combined.includes('react')) {
         frontendFramework = 'React';
-      } else {
-        frontendFramework = s.name || 'React';
+      } else if (!legacyName) {
+        frontendFramework = s.name;
       }
+      if (s.version) frontendVersion = s.version;
+    } else if (combined.includes('next')) {
+      frontendFramework = 'Next.js';
       if (s.version) frontendVersion = s.version;
     } else if (combined.includes('vue')) {
       frontendFramework = 'Vue';
@@ -98,8 +103,8 @@ export function resolveStackContract(
         backendFramework = 'NestJS';
       } else if (combined.includes('express')) {
         backendFramework = 'Express';
-      } else {
-        backendFramework = s.name || 'Express';
+      } else if (!legacyName) {
+        backendFramework = s.name;
       }
       if (s.version) backendVersion = s.version;
     } else if (combined.includes('fastify')) {
