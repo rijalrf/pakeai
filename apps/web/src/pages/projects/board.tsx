@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, RefreshCw, Activity, Zap, Clock, CheckCircle2 } from 'lucide-react';
 import { useWizardNav } from '@/components/layout/wizard-nav';
 import { ExecutionDialog } from '@/components/execution/execution-dialog';
+import { TaskDetailDialog, type TaskDetail } from '@/components/kanban/task-detail-dialog';
 
 type AiMetricsSummary = {
   totalCalls: number;
@@ -18,27 +19,7 @@ type AiMetricsSummary = {
   successRate: number;
 };
 
-type Task = {
-  id: string;
-  order?: number;
-  title: string;
-  description?: string;
-  status: 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED';
-  layer: string;
-  aiContext?: {
-    taskId?: string;
-    requirement_ids?: string[];
-    depends_on?: string[];
-  };
-  dependsOn?: Array<{
-    dependsOn: {
-      id: string;
-      title: string;
-      status: string;
-      order: number;
-    };
-  }>;
-};
+type Task = TaskDetail;
 
 export function BoardPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -50,7 +31,17 @@ export function BoardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [executionDialogOpen, setExecutionDialogOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [projectName, setProjectName] = useState('');
+
+  const handleTaskStatusChange = (taskId: string, newStatus: Task['status']) => {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
+    );
+    if (selectedTask && selectedTask.id === taskId) {
+      setSelectedTask((prev) => (prev ? { ...prev, status: newStatus } : null));
+    }
+  };
 
   useEffect(() => {
     if (!projectId) return;
@@ -270,7 +261,11 @@ export function BoardPage() {
                   const taskIdLabel = task.aiContext?.taskId || (task.order ? `#${task.order}` : undefined);
 
                   return (
-                    <Card key={task.id} className="cursor-pointer hover:shadow-md transition-shadow">
+                    <Card
+                      key={task.id}
+                      onClick={() => setSelectedTask(task)}
+                      className="cursor-pointer hover:shadow-md hover:border-primary/50 transition-all"
+                    >
                       <CardHeader className="pb-1.5 pt-3 px-3">
                         <div className="flex items-center justify-between gap-1.5 mb-1">
                           {taskIdLabel && (
@@ -325,6 +320,13 @@ export function BoardPage() {
         projectName={projectName}
         isOpen={executionDialogOpen}
         onClose={() => setExecutionDialogOpen(false)}
+      />
+
+      <TaskDetailDialog
+        task={selectedTask}
+        isOpen={!!selectedTask}
+        onClose={() => setSelectedTask(null)}
+        onStatusChange={handleTaskStatusChange}
       />
     </div>
   );

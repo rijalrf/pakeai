@@ -1,0 +1,357 @@
+import { useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { api } from '@/lib/http';
+import {
+  X,
+  Copy,
+  Check,
+  FileCode,
+  Terminal,
+  CheckSquare,
+  ListOrdered,
+  AlertCircle,
+  Ban,
+  Layers,
+  Link,
+  Loader2,
+} from 'lucide-react';
+
+export type TaskDetail = {
+  id: string;
+  order?: number;
+  title: string;
+  description?: string;
+  status: 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED';
+  layer: string;
+  acceptanceCriteria?: string[];
+  blockedReason?: string | null;
+  outputSummary?: string | null;
+  aiContext?: {
+    taskId?: string;
+    requirement_ids?: string[];
+    depends_on?: string[];
+    files_to_create?: string[];
+    files_to_modify?: string[];
+    files_readonly?: string[];
+    forbidden?: string[];
+    implementation_steps?: string[];
+    validation_commands?: string[];
+    definition_of_done?: string[];
+    out_of_scope?: string[];
+    consumesApis?: Array<{ method: string; path: string; description?: string }>;
+  };
+  dependsOn?: Array<{
+    dependsOn: {
+      id: string;
+      title: string;
+      status: string;
+      order: number;
+    };
+  }>;
+};
+
+interface TaskDetailDialogProps {
+  task: TaskDetail | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onStatusChange?: (taskId: string, newStatus: TaskDetail['status']) => void;
+}
+
+const STATUS_OPTIONS: Array<{ value: TaskDetail['status']; label: string }> = [
+  { value: 'TODO', label: 'To Do' },
+  { value: 'IN_PROGRESS', label: 'In Progress' },
+  { value: 'REVIEW', label: 'Review' },
+  { value: 'DONE', label: 'Done' },
+  { value: 'BLOCKED', label: 'Blocked' },
+];
+
+export function TaskDetailDialog({ task, isOpen, onClose, onStatusChange }: TaskDetailDialogProps) {
+  const [copiedCmd, setCopiedCmd] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  if (!isOpen || !task) return null;
+
+  const ctx = task.aiContext;
+  const taskIdLabel = ctx?.taskId || (task.order ? `#${task.order}` : task.id.slice(0, 8));
+
+  const handleCopyCommands = () => {
+    const cmds = ctx?.validation_commands ?? [];
+    if (cmds.length === 0) return;
+    navigator.clipboard.writeText(cmds.join('\n'));
+    setCopiedCmd(true);
+    setTimeout(() => setCopiedCmd(false), 2000);
+  };
+
+  const handleChangeStatus = async (newStatus: TaskDetail['status']) => {
+    if (newStatus === task.status) return;
+    setUpdatingStatus(true);
+    try {
+      await api(`/api/tasks/${task.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (onStatusChange) {
+        onStatusChange(task.id, newStatus);
+      }
+    } catch (err) {
+      console.error('Gagal memperbarui status task:', err);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-3xl w-full p-6 space-y-5 my-8 text-foreground transition-all">
+        {/* Header Dialog */}
+        <div className="flex items-start justify-between gap-4 border-b border-border/80 pb-4">
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                {taskIdLabel}
+              </span>
+              <Badge variant="outline" className="text-xs font-semibold">
+                <Layers className="h-3 w-3 mr-1" />
+                {task.layer}
+              </Badge>
+              {ctx?.requirement_ids && ctx.requirement_ids.length > 0 && (
+                <Badge variant="outline" className="text-xs font-mono text-primary border-primary/30">
+                  {ctx.requirement_ids.join(', ')}
+                </Badge>
+              )}
+            </div>
+            <h2 className="text-lg font-bold leading-snug">{task.title}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-lg hover:bg-muted shrink-0"
+            aria-label="Tutup dialog"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Status Selector */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/30 border border-border/70 rounded-xl p-3">
+          <div className="text-xs font-medium text-muted-foreground">Status Task:</div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {STATUS_OPTIONS.map((opt) => (
+              <Button
+                key={opt.value}
+                size="sm"
+                variant={task.status === opt.value ? 'default' : 'outline'}
+                disabled={updatingStatus}
+                onClick={() => handleChangeStatus(opt.value)}
+                className="text-xs h-7 px-2.5"
+              >
+                {task.status === opt.value && updatingStatus ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : null}
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Konten Scrollable */}
+        <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1 text-sm">
+          {/* Deskripsi */}
+          {task.description && (
+            <div className="space-y-1.5">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Deskripsi
+              </h3>
+              <p className="text-sm text-foreground/90 bg-muted/20 p-3 rounded-lg border border-border/60 leading-relaxed">
+                {task.description}
+              </p>
+            </div>
+          )}
+
+          {/* Prasyarat (Depends On) */}
+          {task.dependsOn && task.dependsOn.length > 0 && (
+            <div className="space-y-1.5">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <Link className="h-3.5 w-3.5" /> Prasyarat (Depends On)
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {task.dependsOn.map((dep) => (
+                  <div
+                    key={dep.dependsOn.id}
+                    className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-muted/20 text-xs"
+                  >
+                    <span className="font-medium truncate mr-2">
+                      #{dep.dependsOn.order} {dep.dependsOn.title}
+                    </span>
+                    <Badge
+                      variant={dep.dependsOn.status === 'DONE' ? 'success' : 'outline'}
+                      className="text-[10px] shrink-0"
+                    >
+                      {dep.dependsOn.status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bounded Context (Isolasi File) */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <FileCode className="h-3.5 w-3.5" /> Bounded Context (Isolasi File)
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              {/* Files to create */}
+              <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-1.5">
+                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 block">
+                  File Wajib/Boleh Dibuat:
+                </span>
+                {ctx?.files_to_create && ctx.files_to_create.length > 0 ? (
+                  <ul className="space-y-1 font-mono text-xs">
+                    {ctx.files_to_create.map((f, i) => (
+                      <li key={i} className="text-foreground/90 break-all">
+                        + {f}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="text-xs text-muted-foreground italic">(tidak ada)</span>
+                )}
+              </div>
+
+              {/* Files to modify */}
+              <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-1.5">
+                <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 block">
+                  File Boleh Dimodifikasi:
+                </span>
+                {ctx?.files_to_modify && ctx.files_to_modify.length > 0 ? (
+                  <ul className="space-y-1 font-mono text-xs">
+                    {ctx.files_to_modify.map((f, i) => (
+                      <li key={i} className="text-foreground/90 break-all">
+                        ~ {f}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="text-xs text-muted-foreground italic">(tidak ada)</span>
+                )}
+              </div>
+
+              {/* Readonly files */}
+              {ctx?.files_readonly && ctx.files_readonly.length > 0 && (
+                <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-1.5">
+                  <span className="text-xs font-semibold text-muted-foreground block">
+                    File Referensi (Read-Only):
+                  </span>
+                  <ul className="space-y-1 font-mono text-xs text-muted-foreground">
+                    {ctx.files_readonly.map((f, i) => (
+                      <li key={i} className="break-all">
+                        * {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Forbidden files */}
+              {ctx?.forbidden && ctx.forbidden.length > 0 && (
+                <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5 space-y-1.5">
+                  <span className="text-xs font-semibold text-destructive flex items-center gap-1">
+                    <Ban className="h-3 w-3" /> Dilarang Keras Disentuh:
+                  </span>
+                  <ul className="space-y-1 font-mono text-xs text-destructive/90">
+                    {ctx.forbidden.map((f, i) => (
+                      <li key={i} className="break-all">
+                        x {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Acceptance Criteria */}
+          {task.acceptanceCriteria && task.acceptanceCriteria.length > 0 && (
+            <div className="space-y-1.5">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <CheckSquare className="h-3.5 w-3.5 text-primary" /> Kriteria Penerimaan (Acceptance Criteria)
+              </h3>
+              <div className="p-3 rounded-lg border border-border bg-muted/20 space-y-2">
+                {task.acceptanceCriteria.map((ac, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs">
+                    <span className="text-primary font-bold mt-0.5">-</span>
+                    <span className="text-foreground/90">{ac}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Implementation Steps */}
+          {ctx?.implementation_steps && ctx.implementation_steps.length > 0 && (
+            <div className="space-y-1.5">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <ListOrdered className="h-3.5 w-3.5" /> Langkah Implementasi
+              </h3>
+              <ol className="p-3 rounded-lg border border-border bg-muted/20 space-y-2 list-decimal list-inside text-xs text-foreground/90">
+                {ctx.implementation_steps.map((step, i) => (
+                  <li key={i} className="leading-relaxed">
+                    <span>{step.replace(/^\d+[\.\)]\s*/, '')}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {/* Validation Commands */}
+          {ctx?.validation_commands && ctx.validation_commands.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Terminal className="h-3.5 w-3.5 text-primary" /> Perintah Verifikasi (Validation Commands)
+                </h3>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCopyCommands}
+                  className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                >
+                  {copiedCmd ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                  <span>{copiedCmd ? 'Tersalin' : 'Salin Perintah'}</span>
+                </Button>
+              </div>
+              <div className="p-3 rounded-lg bg-black text-emerald-400 font-mono text-xs overflow-x-auto border border-border space-y-1">
+                {ctx.validation_commands.map((cmd, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-muted-foreground select-none">$</span>
+                    <span>{cmd}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Failure Context / Blocked Reason */}
+          {task.blockedReason && (
+            <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/10 space-y-1">
+              <div className="text-xs font-semibold text-destructive flex items-center gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5" /> Catatan Masalah / Blocked Reason:
+              </div>
+              <p className="text-xs text-destructive/90">{task.blockedReason}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-border/80 pt-3 flex justify-end">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
+            Tutup
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
