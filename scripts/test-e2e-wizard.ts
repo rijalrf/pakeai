@@ -91,13 +91,23 @@ async function runTest() {
   const stackRecJson = await stackRecRes.json();
   console.log('Tech stack rekomendasi:', stackRecJson.techStack);
 
-  // Simpan tech stack
+  // Simpan tech stack dengan format kategori dan versi eksplisit
+  const customStack = ['frontend: React v18', 'backend: Express v4', 'database: SQLite', 'styling: Tailwind CSS', 'testing: Playwright'];
   const saveStackRes = await authedFetch(`/api/projects/${projectId}/techstack`, {
     method: 'PUT',
-    body: JSON.stringify({ techStack: stackRecJson.techStack || ['React', 'Express', 'PostgreSQL'] }),
+    body: JSON.stringify({ techStack: customStack }),
   });
   assert.strictEqual(saveStackRes.status, 200, 'Save tech stack status harus 200');
   console.log('Tech stack tersimpan.');
+
+  // Verifikasi parsing stack di DB tidak terpotong nama/kategori
+  const projAfterStack = await authedFetch(`/api/projects/${projectId}`);
+  const projAfterStackJson = await projAfterStack.json();
+  const feStack = projAfterStackJson.project.stacks?.find((s: any) => s.category === 'frontend');
+  assert(feStack, 'Stack frontend harus ada');
+  assert.strictEqual(feStack.name, 'React', 'Nama stack frontend harus React, bukan prefix');
+  assert.strictEqual(feStack.version, '18', 'Versi stack frontend harus 18');
+  console.log('Verifikasi parsing stack contract OK: category=frontend, name=React, version=18');
 
   console.log('\n--- 5. TEST BRD (GENERATE & IDEMPOTENT DARI CHAT HISTORY) ---');
   // Generate BRD
@@ -151,6 +161,19 @@ async function runTest() {
   const tasksGetJson = await tasksGetRes.json();
   assert(tasksGetJson.tasks.length > 0, 'Tasks harus ada');
   console.log(`Tasks idempotent check OK: ${tasksGetJson.tasks.length} tasks.`);
+
+  // Verifikasi file esensial (.env.example, .env, .gitignore, index.html)
+  const allCreatedFiles = tasksGetJson.tasks.flatMap((t: any) => (t.aiContext?.files_to_create || []));
+  console.log('Total files_to_create di semua tasks:', allCreatedFiles.length);
+  assert(allCreatedFiles.includes('.env.example'), 'Harus ada file .env.example di files_to_create');
+  assert(allCreatedFiles.includes('.env'), 'Harus ada file .env di files_to_create');
+  assert(allCreatedFiles.includes('.gitignore'), 'Harus ada file .gitignore di files_to_create');
+  console.log('Verifikasi file esensial (.env.example, .env, .gitignore) OK.');
+
+  // Verifikasi validation_commands dinamis
+  const allValCmds = tasksGetJson.tasks.flatMap((t: any) => (t.aiContext?.validation_commands || []));
+  assert(allValCmds.some((cmd: string) => cmd.includes('build')), 'Harus ada validation command build');
+  console.log('Verifikasi validation commands dinamis OK.');
 
   console.log('\n--- 8B. TEST EXPORT PAKET ZIP & WIZARD STEP UNLOCK ---');
   // Test Download Paket ZIP
@@ -237,6 +260,30 @@ async function runTest() {
     assert.strictEqual(ctxRes.status, 200, 'Agent context status harus 200');
     const ctxJson = await ctxRes.json();
     console.log('Agent context task preview:', (ctxJson.markdown || '').substring(0, 80));
+
+    // Test guard: periksa bahwa guard memuat files_to_create
+    assert(Array.isArray(ctxJson.guard?.files_to_create), 'Guard harus memuat files_to_create');
+    console.log(`Guard files_to_create terdaftar: ${ctxJson.guard.files_to_create.length} files`);
+
+    // Test simulasi guard fail jika claimed file tidak ada di disk
+    const { runGuard, GuardError } = await import('../packages/cli/src/guard.js');
+    let guardBlocked = false;
+    try {
+      await runGuard(
+        {
+          files_to_create: ['non_existent_file_test_xyz_123.ts'],
+          validation_commands: [],
+        },
+        process.cwd(),
+        taskId
+      );
+    } catch (gErr: any) {
+      if (gErr instanceof GuardError && gErr.failureContext?.failure_type === 'RUNTIME_ERROR') {
+        guardBlocked = true;
+      }
+    }
+    assert.strictEqual(guardBlocked, true, 'Guard harus memblokir jika file yang diklaim dibuat tidak ada di disk');
+    console.log('Verifikasi CLI Guard menolak missing claimed files OK.');
 
     // Agent done task
     const doneRes = await agentFetch(`/api/agent/tasks/${taskId}/complete`, { method: 'POST' });
