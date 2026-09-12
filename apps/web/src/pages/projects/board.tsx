@@ -293,14 +293,14 @@ export function BoardPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <BookOpen className="h-4 w-4 text-primary" />
-                  <CardTitle className="text-sm font-bold">Kolom User Story</CardTitle>
+                  <CardTitle className="text-sm font-bold">User Story</CardTitle>
                 </div>
                 <Badge variant="outline" className="text-[11px] font-mono">
                   {userStories.length} story
                 </Badge>
               </div>
               <p className="text-[11px] text-muted-foreground mt-1">
-                Induk kebutuhan. Klik kartu untuk menyaring task turunan.
+                Induk kebutuhan. Klik kartu untuk memfilter task.
               </p>
             </CardHeader>
             <CardContent className="p-3 space-y-2.5 max-h-[calc(100vh-280px)] overflow-y-auto">
@@ -353,7 +353,7 @@ export function BoardPage() {
                     </p>
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-border/50">
                       <span>
-                        Turunan: <strong className="text-foreground">{storyTasks.length} task</strong>
+                        <strong className="text-foreground">{storyTasks.length} task</strong>
                       </span>
                       <span>
                         {doneCount}/{storyTasks.length} ({percent}%)
@@ -390,7 +390,7 @@ export function BoardPage() {
                   Sebagai {selectedStory.persona} — {selectedStory.action}
                 </span>
                 <Badge variant="outline" className="text-[10px] shrink-0 ml-1 bg-background">
-                  {displayedTasks.length} task turunan
+                  {displayedTasks.length} task
                 </Badge>
               </div>
               <Button

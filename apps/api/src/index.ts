@@ -624,9 +624,9 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
   if (ctx.userStoryId) {
     const matchedStory = (brd?.userStories ?? []).find((s: any) => s.id === ctx.userStoryId);
     if (matchedStory) {
-      mdParts.push(`**User Story Induk**: [${matchedStory.id}] Sebagai ${matchedStory.persona}, ${matchedStory.action}, ${matchedStory.benefit}`);
+      mdParts.push(`**User Story**: [${matchedStory.id}] Sebagai ${matchedStory.persona}, ${matchedStory.action}, ${matchedStory.benefit}`);
     } else {
-      mdParts.push(`**User Story Induk**: ${ctx.userStoryId}`);
+      mdParts.push(`**User Story**: ${ctx.userStoryId}`);
     }
   }
 
@@ -984,7 +984,7 @@ function buildTasksMarkdown(project: { name: string }, tasks: any[]): string {
     lines.push(`## [${t.order}] ${t.title} (${t.layer})`);
     lines.push(`- **ID:** \`${t.id}\``);
     if (aiCtx.userStoryId) {
-      lines.push(`- **User Story Induk:** \`${aiCtx.userStoryId}\``);
+      lines.push(`- **User Story:** \`${aiCtx.userStoryId}\``);
     }
     lines.push(`- **Status:** ${t.status}`);
     lines.push(`- **Deskripsi:** ${t.description || '-'}`);
