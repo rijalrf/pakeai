@@ -1,4 +1,4 @@
-// BRD page: View atau auto-generate BRD dari interview + tech stack
+// BRD page: View atau auto-generate BRD dari chat history + tech stack
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/lib/http';
@@ -9,13 +9,12 @@ import { Loader2, ArrowRight, Lock } from 'lucide-react';
 
 const STAGE_ORDER: Record<string, number> = {
   chat: 0,
-  interview: 1,
-  techstack: 2,
-  brd: 3,
-  tree: 4,
-  board: 5,
-  guide: 6,
-  done: 7,
+  techstack: 1,
+  brd: 2,
+  tree: 3,
+  board: 4,
+  guide: 5,
+  done: 6,
 };
 
 type BrdContent = {

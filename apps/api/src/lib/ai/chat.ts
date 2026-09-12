@@ -87,14 +87,14 @@ Output JSON WAJIB:
     maxRetries: 2,
   });
 
-  // 2. Buat project baru (wizardStep = interview karena langkah selanjutnya interview)
+  // 2. Buat project baru (wizardStep langsung ke techstack karena interview digabung ke chat)
   const project = await prisma.project.create({
     data: {
       userId,
       name: finalization.name,
       idea: finalization.summary,
       description: finalization.summary,
-      wizardStep: 'interview',
+      wizardStep: 'techstack',
     },
   });
 

@@ -21,33 +21,32 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-import { generateDiscoveryQuestions, DEFAULT_DISCOVERY_QUESTIONS } from './lib/ai/discovery.js';
 import { generateBRDFromDiscovery, BrdSchema } from './lib/ai/brd.js';
 import { generateRoadmapFromBRD } from './lib/ai/roadmap.js';
 import { generateTasksFromRoadmap } from './lib/ai/tasks.js';
 import { generateUiSpec, UiSpecSchema } from './lib/ai/ui-spec.js';
 import { validateAndNormalizeDAG } from './lib/ai/dag-validator.js';
-import { replyChat, finalizeChatSession, generateInterviewFromChat, recommendInterviewAnswer, recommendTechStack, generateTreeFromBrd } from './lib/ai/chat.js';
+import { validateApiCoverage } from './lib/ai/api-coverage-validator.js';
+import { replyChat, finalizeChatSession, recommendTechStack, generateTreeFromBrd } from './lib/ai/chat.js';
 
 // Hash token utility (mirrors requireAgent.middleware)
 function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-// Urutan tahapan wizard proyek
+// Urutan tahapan wizard proyek (interview dihapus, langsung chat -> techstack)
 const STAGE_ORDER: Record<string, number> = {
   chat: 0,
-  interview: 1,
-  techstack: 2,
-  brd: 3,
-  tree: 4,
-  board: 5,
-  guide: 6,
-  done: 7,
+  techstack: 1,
+  brd: 2,
+  tree: 3,
+  board: 4,
+  guide: 5,
+  done: 6,
 };
 
 function isStageLocked(currentStep: string | undefined | null, targetStage: string): boolean {
-  const currentRank = STAGE_ORDER[currentStep ?? 'interview'] ?? 1;
+  const currentRank = STAGE_ORDER[currentStep ?? 'techstack'] ?? 1;
   const targetRank = STAGE_ORDER[targetStage] ?? 0;
   return currentRank > targetRank;
 }
@@ -967,6 +966,18 @@ Setelah semua task DONE, aplikasi siap dijalankan di komputer lokal user:
 - **Testing**: sebelum panggil \`pakeai done\`, pastikan kode jalan lancar lokal dan test acceptance criteria terpenuhi.
 - **Jika gagal**: laporkan error apa adanya ke user. JANGAN diam-diam fallback.
 
+## Checklist Kualitas (verifikasi sebelum \`pakeai done\` di setiap task)
+- [ ] Tidak ada hardcoded secret/credential (dilarang fallback default seperti "|| 'secret'")
+- [ ] Semua controller async dibungkus try-catch atau asyncHandler agar tidak crash server
+- [ ] Endpoint POST/PUT/PATCH memvalidasi input (Zod schema)
+- [ ] Endpoint GET list mendukung pagination (?page, ?limit)
+- [ ] Operasi stok/saldo/kuota dalam $transaction atomik (baca dan tulis dalam transaksi yang sama)
+- [ ] DELETE endpoint cek relasi aktif sebelum hapus (tolak 409 jika ada relasi aktif)
+- [ ] Frontend: dilarang window.alert(), gunakan AlertBanner atau Toast
+- [ ] Frontend: semua label punya htmlFor yang sesuai dengan id input, tombol ikon punya aria-label
+- [ ] Frontend: loading state pakai skeleton loader, bukan teks polos
+- [ ] .gitignore ada dan exclude node_modules, .env, *.db, dist
+
 ## Token Anda
 Tempel token di placeholder di bawah SEBELUM menyalin prompt ini.
 
@@ -976,190 +987,16 @@ Tempel token di placeholder di bawah SEBELUM menyalin prompt ini.
   res.json({ projectName: project.name, prompt: md });
 });
 
-// ============================================================
-// Discovery -> BRD -> Roadmap -> Tasks (F2 & F3)
-// ============================================================
-
-// Step 1: user isi ide -> AI generate pertanyaan discovery.
-// Bila AI gagal (key invalid / gateway down), fallback ke DEFAULT_DISCOVERY_QUESTIONS.
-app.post('/api/projects/:id/discovery/generate', requireUser, async (req: AuthedRequest, res) => {
-  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
-  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
-
-  let questions: { question: string; context?: string }[];
-  try {
-    questions = await generateDiscoveryQuestions(project.idea);
-  } catch (err) {
-    console.warn('[discovery] AI gagal generate, fallback default:', (err as Error).message);
-    questions = DEFAULT_DISCOVERY_QUESTIONS;
-  }
-
-  await prisma.discoveryQuestion.deleteMany({ where: { projectId: project.id } });
-  const created = await Promise.all(
-    questions.map((q, i) =>
-      prisma.discoveryQuestion.create({
-        data: { projectId: project.id, order: i + 1, question: q.question, context: q.context },
-      }),
-    ),
-  );
-  res.json({ questions: created, aiGenerated: questions !== DEFAULT_DISCOVERY_QUESTIONS });
-});
-
-function getFallbackDiscoveryOptions(question: string, context?: string | null): string[] {
-  const ctx = (context || '').toLowerCase();
-  const q = question.toLowerCase();
-
-  if (ctx.includes('notification') || q.includes('whatsapp') || q.includes('notifikasi')) {
-    return [
-      'Ya, otomatis kirim notifikasi via WhatsApp',
-      'Ya, otomatis kirim notifikasi via Email',
-      'Tidak perlu notifikasi eksternal, cukup di sistem',
-    ];
-  }
-  if (ctx.includes('identity') || q.includes('identitas') || q.includes('nim') || q.includes('nip')) {
-    return [
-      'Wajib input identitas resmi (NIM / NIP / KTP)',
-      'Cukup nama lengkap dan nomor WhatsApp aktif',
-      'Bebas disesuaikan dengan jenis peminjam (civitas vs umum)',
-    ];
-  }
-  if (ctx.includes('return') || q.includes('kembali') || q.includes('parsial')) {
-    return [
-      'Boleh dikembalikan sebagian, sisa barang tetap tercatat dipinjam',
-      'Wajib dikembalikan sekaligus semua barang dalam satu transaksi',
-      'Otomatis pecah menjadi transaksi baru untuk barang yang belum kembali',
-    ];
-  }
-  if (ctx.includes('hardware') || q.includes('scan') || q.includes('barcode') || q.includes('qr')) {
-    return [
-      'Wajib scan QR code / barcode fisik lewat kamera perangkat',
-      'Cukup input manual atau gunakan barcode scanner USB',
-      'Opsional, sediakan scan kamera dan pencarian manual SKU',
-    ];
-  }
-  if (ctx.includes('damage') || q.includes('rusak') || q.includes('denda')) {
-    return [
-      'Barang rusak memicu denda dan otomatis potong stok aktif',
-      'Catat status barang rusak tanpa membebankan denda',
-      'Wajib ganti rugi unit barang yang sama oleh peminjam',
-    ];
-  }
-  if (ctx.includes('report') || q.includes('ekspor') || q.includes('excel') || q.includes('pdf')) {
-    return [
-      'Ya, butuh ekspor laporan ke format Excel (XLSX / CSV)',
-      'Ya, butuh ekspor laporan ke PDF dan Excel',
-      'Tidak butuh ekspor file, cukup pantau di dashboard',
-    ];
-  }
-
-  return [
-    'Ya, aktifkan fitur ini dengan konfigurasi standar',
-    'Tidak perlu fitur ini pada tahap awal (MVP)',
-    'Sederhana saja sesuai kebutuhan dasar pengguna',
-  ];
-}
-
-function getFallbackDiscoveryRequired(question: string, context?: string | null, idx: number = 0): boolean {
-  const ctx = (context || '').toLowerCase();
-  const q = question.toLowerCase();
-
-  if (
-    ctx.includes('identity') ||
-    ctx.includes('rule') ||
-    ctx.includes('business') ||
-    ctx.includes('damage') ||
-    ctx.includes('return') ||
-    q.includes('identitas') ||
-    q.includes('alur jika') ||
-    q.includes('rusak')
-  ) {
-    return true;
-  }
-
-  if (
-    ctx.includes('notification') ||
-    ctx.includes('hardware') ||
-    ctx.includes('report') ||
-    q.includes('notifikasi') ||
-    q.includes('scan') ||
-    q.includes('ekspor')
-  ) {
-    return false;
-  }
-
-  return idx < 2;
-}
-
-app.get('/api/projects/:id/discovery', requireUser, async (req: AuthedRequest, res) => {
-  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
-  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
-  const rawQuestions = await prisma.discoveryQuestion.findMany({
-    where: { projectId: project.id },
-    orderBy: { order: 'asc' },
-    include: { answers: true },
-  });
-
-  const questions = rawQuestions.map((q, idx) => {
-    let parsedContext: any = null;
-    try {
-      if (q.context && q.context.startsWith('{')) {
-        parsedContext = JSON.parse(q.context);
-      }
-    } catch {}
-
-    const options = (parsedContext?.options && Array.isArray(parsedContext.options) && parsedContext.options.length > 0)
-      ? parsedContext.options
-      : getFallbackDiscoveryOptions(q.question, q.context);
-
-    const required = typeof parsedContext?.required === 'boolean'
-      ? parsedContext.required
-      : getFallbackDiscoveryRequired(q.question, q.context, idx);
-
-    const type = parsedContext?.type === 'checkbox' ? 'checkbox' : 'radio';
-
-    return {
-      ...q,
-      options: options.slice(0, 3),
-      required,
-      type,
-    };
-  });
-
-  res.json({ questions });
-});
-
-app.post('/api/discovery/:qid/answer', requireUser, async (req: AuthedRequest, res) => {
-  const schema = z.object({ answer: z.string().min(1).max(4000) });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Jawaban tidak valid.' });
-  const q = await prisma.discoveryQuestion.findUnique({
-    where: { id: req.params.qid },
-    include: { project: true },
-  });
-  if (!q || q.project.userId !== req.userId) return res.status(404).json({ error: 'Pertanyaan tidak ditemukan.' });
-  await prisma.discoveryAnswer.deleteMany({ where: { questionId: q.id } });
-  const ans = await prisma.discoveryAnswer.create({
-    data: { questionId: q.id, answer: parsed.data.answer },
-  });
-  res.status(201).json({ answer: ans });
-});
-
-// Step 2: generate BRD dari Q&A + ide + tech stack + chat history.
+// Step 2: generate BRD dari ide + tech stack + chat history.
 app.post('/api/projects/:id/brd/generate', requireUser, async (req: AuthedRequest, res) => {
   const project = await prisma.project.findFirst({
     where: { id: req.params.id, userId: req.userId },
     include: {
-      questions: { include: { answers: true } },
       stacks: true,
     },
   });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
-  const qa = project.questions
-    .filter((q) => q.answers.length > 0)
-    .map((q) => ({ question: q.question, answer: q.answers[0].answer }));
-  if (qa.length === 0) {
-    return res.status(400).json({ error: 'Jawab minimal 1 pertanyaan discovery dulu.' });
-  }
+
   const existing = await prisma.brd.findUnique({ where: { projectId: project.id } });
   if (existing && isStageLocked(project.wizardStep, 'brd')) {
     return res.status(403).json({ error: 'Dokumen BRD telah selesai dan terkunci (Read-Only).' });
@@ -1180,7 +1017,6 @@ app.post('/api/projects/:id/brd/generate', requireUser, async (req: AuthedReques
   try {
     const brd = await generateBRDFromDiscovery({
       idea: project.idea,
-      questions: qa,
       projectId: project.id,
       techStack: techStackList,
       chatHistory,
@@ -1425,13 +1261,40 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
       }
     }
 
-    const generated = await generateTasksFromRoadmap({
+    let generated = await generateTasksFromRoadmap({
       roadmap: { phases: phasesForAI },
       projectName: project.name,
       brd: brdData,
       uiSpec: uiSpecData,
       projectId: project.id,
     });
+
+    // Validasi coverage API ke UI: pastikan seluruh mutasi punya pemanggil di frontend
+    let coverage = validateApiCoverage(generated, brdData?.apiEndpoints ?? []);
+    if (coverage.uncovered.length > 0) {
+      console.warn(`[API-COVERAGE] Ditemukan ${coverage.uncovered.length} endpoint mutasi tanpa UI pemanggil, melakukan auto-retry perbaikan...`);
+      const feedback = `Endpoint mutasi berikut BELUM memiliki antarmuka pemanggil di task FRONTEND:\n` +
+        coverage.uncovered.map((ep) => `- ${ep.method} ${ep.path}: ${ep.description || 'aksi'}`).join('\n') +
+        `\nPastikan Anda membuat task FRONTEND khusus (atau menyertakan komponen modal/dialog seperti InviteMemberDialog, ConfirmModal, dll di 'files_to_create' dan 'consumesApis') agar endpoint di atas memiliki antarmuka di UI.`;
+
+      try {
+        const retryGenerated = await generateTasksFromRoadmap({
+          roadmap: { phases: phasesForAI },
+          projectName: project.name,
+          brd: brdData,
+          uiSpec: uiSpecData,
+          projectId: project.id,
+          feedback,
+        });
+        generated = retryGenerated;
+        coverage = validateApiCoverage(generated, brdData?.apiEndpoints ?? []);
+        if (coverage.uncovered.length > 0) {
+          console.warn(`[API-COVERAGE] Masih ada ${coverage.uncovered.length} endpoint tanpa UI setelah retry, tetap lanjut menyimpan.`);
+        }
+      } catch (retryErr) {
+        console.warn('[API-COVERAGE] Retry perbaikan task gagal, gunakan hasil pertama:', (retryErr as Error).message);
+      }
+    }
 
     // Validasi DAG Deterministik (Bab 35 & 36): deteksi siklus, buang self-dep, dan urutkan topologis
     const { tasks: validTasks, warnings, healed } = validateAndNormalizeDAG(generated);
@@ -1483,6 +1346,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
             validation_commands: t.validation_commands,
             definition_of_done: t.definition_of_done,
             out_of_scope: t.out_of_scope,
+            consumesApis: (t as any).consumesApis ?? [],
           },
           acceptanceCriteria: t.acceptanceCriteria,
         },
@@ -1804,110 +1668,6 @@ app.post('/api/chat/sessions/:id/finalize', requireUser, async (req: AuthedReque
 // ============================================================
 // WIZARD FLOW — Langkah-langkah setelah project created dari chat
 // ============================================================
-
-// Interview generation
-app.post('/api/projects/:id/interview/generate', requireUser, async (req: AuthedRequest, res) => {
-  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
-  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
-
-  if (isStageLocked(project.wizardStep, 'interview')) {
-    return res.status(403).json({ error: 'Tahap interview telah selesai dan terkunci (Read-Only).' });
-  }
-
-  try {
-    const questions = await generateInterviewFromChat(project.id);
-    await prisma.discoveryQuestion.deleteMany({ where: { projectId: project.id } });
-    const created = await Promise.all(
-      questions.filter(Boolean).map((q: any, idx: number) =>
-        prisma.discoveryQuestion.create({
-          data: {
-            projectId: project.id,
-            order: idx + 1,
-            question: q.question,
-            context: JSON.stringify({
-              tag: q.context,
-              options: q.options && q.options.length > 0 ? q.options : getFallbackDiscoveryOptions(q.question, q.context),
-              required: typeof q.required === 'boolean' ? q.required : getFallbackDiscoveryRequired(q.question, q.context, idx),
-              type: q.type || 'radio',
-            }),
-          },
-        })
-      )
-    );
-    res.json({ questions: created, aiGenerated: true });
-  } catch (err) {
-    console.warn('[interview] AI gagal generate dari chat, fallback default:', (err as Error).message);
-    await prisma.discoveryQuestion.deleteMany({ where: { projectId: project.id } });
-    const created = await Promise.all(
-      DEFAULT_DISCOVERY_QUESTIONS.map((q, idx) =>
-        prisma.discoveryQuestion.create({
-          data: {
-            projectId: project.id,
-            order: idx + 1,
-            question: q.question,
-            context: JSON.stringify({
-              tag: q.context,
-              options: getFallbackDiscoveryOptions(q.question, q.context),
-              required: getFallbackDiscoveryRequired(q.question, q.context, idx),
-              type: 'radio',
-            }),
-          },
-        })
-      )
-    );
-    res.json({ questions: created, aiGenerated: false });
-  }
-});
-
-app.post('/api/projects/:id/interview/recommend', requireUser, async (req: AuthedRequest, res) => {
-  const schema = z.object({ questionIndex: z.number().min(0) });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Data tidak valid.' });
-
-  const project = await prisma.project.findFirst({
-    where: { id: req.params.id, userId: req.userId },
-    include: { questions: { orderBy: { order: 'asc' } } },
-  });
-  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
-
-  if (isStageLocked(project.wizardStep, 'interview')) {
-    return res.status(403).json({ error: 'Tahap interview telah selesai dan terkunci (Read-Only).' });
-  }
-
-  const question = project.questions[parsed.data.questionIndex];
-  if (!question) return res.status(404).json({ error: 'Pertanyaan tidak ditemukan.' });
-
-  try {
-    const rec = await recommendInterviewAnswer(project.id, question.question);
-    res.json({ recommendation: rec.answer, reasoning: rec.reasoning });
-  } catch (err) {
-    res.json({
-      recommendation: 'Solusi sederhana yang fokus pada kemudahan pengguna dan fungsi inti.',
-      reasoning: 'Rekomendasi umum untuk pemula.',
-    });
-  }
-});
-
-app.put('/api/projects/:id/interview', requireUser, async (req: AuthedRequest, res) => {
-  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
-  if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
-
-  if (isStageLocked(project.wizardStep, 'interview')) {
-    return res.status(403).json({ error: 'Tahap interview telah selesai dan terkunci (Read-Only).' });
-  }
-
-  const answers = Array.isArray(req.body.answers) ? req.body.answers : [];
-  for (const ans of answers) {
-    if (!ans.questionId) continue;
-    await prisma.discoveryAnswer.deleteMany({ where: { questionId: ans.questionId } });
-    await prisma.discoveryAnswer.create({
-      data: { questionId: ans.questionId, answer: ans.answer || 'Dilewati' },
-    });
-  }
-
-  await prisma.project.update({ where: { id: project.id }, data: { wizardStep: 'techstack' } });
-  res.json({ ok: true });
-});
 
 // Tech stack
 app.post('/api/projects/:id/techstack/recommend', requireUser, async (req: AuthedRequest, res) => {

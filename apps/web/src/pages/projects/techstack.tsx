@@ -27,13 +27,12 @@ import { cn } from '@/lib/utils';
 
 const STAGE_ORDER: Record<string, number> = {
   chat: 0,
-  interview: 1,
-  techstack: 2,
-  brd: 3,
-  tree: 4,
-  board: 5,
-  guide: 6,
-  done: 7,
+  techstack: 1,
+  brd: 2,
+  tree: 3,
+  board: 4,
+  guide: 5,
+  done: 6,
 };
 
 // Preset kategori untuk form manual

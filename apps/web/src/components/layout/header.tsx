@@ -21,12 +21,6 @@ function getPageHeaderInfo(pathname: string): { title: string; subtitle?: string
       subtitle: 'Kelola tugas implementasi aplikasi',
     };
   }
-  if (pathname.includes('/interview')) {
-    return {
-      title: 'Interview Kebutuhan Aplikasi',
-      subtitle: 'Jawab pertanyaan untuk memperjelas kebutuhan aplikasi',
-    };
-  }
   if (pathname.includes('/techstack')) {
     return {
       title: 'Pilih Tech Stack',

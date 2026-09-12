@@ -18,7 +18,6 @@ type Project = {
 
 const STAGE_LABELS: Record<string, string> = {
   chat: 'Brainstorming',
-  interview: 'Interview',
   techstack: 'Tech Stack',
   brd: 'Dokumen BRD',
   tree: 'Diagram Struktur',
@@ -28,9 +27,9 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 function getProjectStageUrl(p: Project): string {
-  const step = p.wizardStep || 'interview';
+  const step = p.wizardStep || 'techstack';
   if (step === 'done') return `/projects/${p.id}/board`;
-  if (step === 'chat') return `/projects/${p.id}/interview`;
+  if (step === 'chat' || step === 'interview') return `/projects/${p.id}/techstack`;
   return `/projects/${p.id}/${step}`;
 }
 

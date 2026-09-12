@@ -37,6 +37,15 @@ const TasksSchema = z.object({
             }),
           )
           .default([]),
+        consumesApis: z
+          .array(
+            z.object({
+              method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+              path: z.string(),
+              description: z.string().optional(),
+            }),
+          )
+          .default([]),
       }),
     )
     .min(3),
@@ -57,6 +66,7 @@ export async function generateTasksFromRoadmap(args: {
   };
   uiSpec?: UiSpecData | null;
   projectId?: string;
+  feedback?: string;
 }): Promise<TaskGen[]> {
   const system = `Anda adalah Principal AI Task Architect. Tugas Anda adalah memecah fitur aplikasi menjadi atomic tasks terstruktur yang dirancang agar DAPAT DIEKSEKUSI DENGAN SUKSES OLEH LOW-COST AI CODING AGENT ATAU JUNIOR DEVELOPER TANPA HALUSINASI DAN MENGHASILKAN APLIKASI YANG BISA DIJALANKAN 100% END-TO-END.
 
@@ -68,11 +78,23 @@ PRINSIP ATOMIC & LOW-COST COMPATIBILITY:
 5. Berikan 'validation_commands' otomatis (misal: "npm test", "npm run typecheck", "npm run build") yang bisa dijalankan coding agent untuk membuktikan keberhasilan task.
 6. Pisahkan 'acceptanceCriteria' (kondisi lulus fitur) dari 'definition_of_done' (kondisi siap ditutup) dan 'out_of_scope' (hal yang dilarang dilakukan di task ini).
 7. Setiap task layer BACKEND yang membuat API endpoint WAJIB mendeklarasikan 'apiContracts' lengkap dengan method, path, requestBody, dan responseBody type signature.
-8. WAJIB ada task BOOTSTRAP di awal (order: 1): "Project Initialization & Shared Configuration" yang menyiapkan package.json, tsconfig, folder structure, .env.example, dan shared types.
-9. WAJIB ada WIRING tasks di transisi antar layer:
+8. KONSISTENSI & PARITY API KE UI (SANGAT KRUSIAL):
+   - Setiap endpoint MUTASI (POST, PUT, PATCH, DELETE) yang ada di SPESIFIKASI ENDPOINT API atau task BACKEND WAJIB memiliki task FRONTEND pemanggil (form, modal, dialog, atau tombol aksi interaktif). Dilarang menyisakan endpoint backend tanpa antarmuka pemanggil di frontend.
+   - Setiap task FRONTEND yang memanggil endpoint mutasi WAJIB mendeklarasikan field 'consumesApis' dengan array [{ method, path, description }].
+   - Komponen UI untuk aksi spesifik (seperti InviteMemberDialog, ConfirmDeleteModal, UploadProofModal) WAJIB dimasukkan ke 'files_to_create' di task FRONTEND yang relevan, tidak boleh terlewat.
+9. WAJIB ada task BOOTSTRAP di awal (order: 1): "Project Initialization & Shared Configuration" yang menyiapkan package.json, tsconfig, folder structure, .env.example, .gitignore (wajib exclude: node_modules, .env, *.db, dist), README.md (cara install, setup env, dan jalankan aplikasi), dan shared types.
+10. WAJIB ada WIRING tasks di transisi antar layer:
    - Transisi DATABASE -> BACKEND: "Setup Prisma Client Connection & Shared Client Export" agar controller API bisa langsung mengimpor prisma instance.
    - Transisi BACKEND -> FRONTEND: "Create API Client Wrapper & Environment Variables" (membuat fetch wrapper di apps/web/src/lib/api.ts dengan VITE_API_URL).
-   - Di layer INTEGRATION: "Wire Frontend Pages to Real Backend Endpoints" (menghubungkan setiap halaman React ke endpoint backend asli) DAN "E2E Smoke Test Verification" (menjalankan aplikasi dan memastikan halaman utama dapat dibuka).`;
+   - Di layer INTEGRATION: "Wire Frontend Pages to Real Backend Endpoints" (menghubungkan setiap halaman React ke endpoint backend asli) DAN "E2E Smoke Test Verification" (menjalankan aplikasi dan memastikan halaman utama dapat dibuka).
+
+ATURAN WAJIB LAYER BACKEND (KEAMANAN, ERROR HANDLING, VALIDASI):
+11. KEAMANAN: Dilarang menggunakan fallback default untuk secret/credential. Contoh DILARANG: process.env.JWT_SECRET || 'secret'. WAJIB: process.env.JWT_SECRET! atau throw error jika undefined saat boot. Password WAJIB di-hash dengan bcrypt. WAJIB pasang helmet() dan cors() di Express app.
+12. ERROR HANDLING: Setiap controller async Express WAJIB dibungkus try-catch atau menggunakan wrapper asyncHandler/express-async-errors agar error tidak crash server. WAJIB buat global error middleware (err, req, res, next) yang mengembalikan { error: string } dengan status code yang tepat.
+13. VALIDASI INPUT: Setiap endpoint POST/PUT/PATCH WAJIB memvalidasi request body menggunakan Zod schema sebelum memproses. Contoh: const parsed = Schema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+14. TRANSAKSI & ATOMISITAS: Operasi yang melibatkan baca-lalu-tulis pada resource bersama (stok, saldo, kuota) WAJIB menggunakan prisma.$transaction dengan pembacaan DAN penulisan di dalam transaction yang sama. Dilarang membaca status di luar transaction lalu menulis di dalamnya.
+15. INTEGRITAS RELASI: Endpoint DELETE WAJIB memeriksa relasi aktif (record PENDING/ACTIVE). Jika ada relasi aktif, TOLAK penghapusan dengan HTTP 409 Conflict, BUKAN silent cascade delete.
+16. PAGINATION: Setiap endpoint GET yang mengembalikan daftar WAJIB menerima query params ?page=1&limit=20 dan mengembalikan { data: T[], meta: { total, page, limit, totalPages } }.`;
 
   const reqText = args.brd?.functionalRequirements?.length
     ? `\nKEBUTUHAN FUNGSIONAL TERSEDIA:\n${args.brd.functionalRequirements.map((r) => `- [${r.id}] ${r.title}: ${r.description}`).join('\n')}`
@@ -94,6 +116,8 @@ PRINSIP ATOMIC & LOW-COST COMPATIBILITY:
     ? `\nSPESIFIKASI UI/UX TERSTRUKTUR (DEDICATED UI SPEC CONTRACT):\n${JSON.stringify(args.uiSpec, null, 2)}\n(Gunakan halaman, komponen, tata letak, dan state interaktif di atas secara ketat untuk semua task berlayer FRONTEND)`
     : '';
 
+  const feedbackText = args.feedback ? `\nCATATAN PERBAIKAN DARI GENERASI SEBELUMNYA (WAJIB DIPENUHI):\n${args.feedback}` : '';
+
   const user = `ROADMAP:
 ${JSON.stringify(args.roadmap, null, 2)}
 ${reqText}
@@ -101,6 +125,7 @@ ${rulesText}
 ${dataModelsText}
 ${apiEndpointsText}
 ${uiSpecText}
+${feedbackText}
 
 NAMA PROJECT: ${args.projectName}
 
@@ -147,6 +172,13 @@ Schema JSON (WAJIB):
           "requestBody": "{ email: string, password: string }",
           "responseBody": "{ token: string, user: { id: string, email: string } }"
         }
+      ],
+      "consumesApis": [
+        {
+          "method": "POST",
+          "path": "/api/auth/login",
+          "description": "Form login memanggil endpoint ini"
+        }
       ]
     }
   ]
@@ -169,11 +201,16 @@ Aturan khusus FRONTEND (Design System Contract & UI/UX Specs):
 - Spacing terstandarisasi: gunakan kelipatan 4px (Tailwind: gap-1, gap-2, p-3, p-4, p-6, space-y-4).
 - Tangani state interaksi secara lengkap pada acceptance criteria: idle, loading (spinner/skeleton), error, dan success.
 - Halaman UI WAJIB memanggil API Client (bukan hardcoded data mock).
+- PARITY UI: Setiap endpoint mutasi (POST/PUT/PATCH/DELETE) di backend HARUS punya dialog/modal/form pemanggil yang terdaftar eksplisit di 'files_to_create' dan 'consumesApis' pada task FRONTEND. Jangan abaikan modal aksi seperti InviteMemberDialog, EditProfileModal, dsb.
+- DILARANG menggunakan window.alert() atau alert() untuk menampilkan error/notifikasi. WAJIB gunakan komponen AlertBanner atau Toast yang konsisten di seluruh aplikasi.
+- Setiap <label> WAJIB memiliki atribut htmlFor yang menunjuk ke id elemen input terkait. Setiap tombol ikon (tanpa teks visible) WAJIB punya aria-label.
+- Loading state WAJIB menggunakan skeleton loader (animated placeholder), BUKAN teks "Loading..." polos. Masukkan skeleton loader ke acceptance criteria setiap halaman yang fetch data.
+- Tipe data yang sudah didefinisikan di shared package (misal: shared/src/types.ts) WAJIB di-import dari sana. DILARANG menduplikasi/redefinisi tipe yang sama di apps/web.
 
 Aturan acceptance criteria (HARUS DIPATUHI):
 - Setiap acceptance criterion HARUS measurable dan testable, bukan subjektif.
 - BACKEND: "Endpoint [METHOD] [PATH] merespons HTTP status yang sesuai dan format JSON valid sesuai contract".
-- FRONTEND: "Halaman [Nama] memuat dan menampilkan data dari endpoint API [PATH] secara dinamis".
+- FRONTEND: "Halaman [Nama] memuat data dari API [PATH] dengan skeleton loader saat loading, AlertBanner saat error, empty state saat data kosong, dan menampilkan data secara dinamis. Label terhubung ke input via htmlFor/id."
 - INTEGRATION: "Jalankan npm run dev di root project, akses http://localhost:PORT di browser, halaman utama tampil tanpa error console".
 
 Wajib pada layer INTEGRATION include minimal 4 task khusus ini:
