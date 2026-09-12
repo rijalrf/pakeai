@@ -3,8 +3,6 @@
 // sebelum pakeai done mengirim status ke API. Server tidak bisa akses filesystem laptop user,
 // jadi guard ini wajib berjalan di CLI.
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 
 export type GuardSpec = {
   layer?: string;
@@ -160,29 +158,6 @@ export async function runGuard(spec: GuardSpec, cwd: string, taskId?: string): P
       `Task menyentuh file terlarang (forbidden).\n${list}\n\nPerbaiki dengan revert perubahan tersebut, atau jalankan: pakeai done --force`,
       failure
     );
-  }
-
-  // Cek keberadaan fisik file yang diklaim wajib dibuat oleh task
-  const filesToCreate = spec.files_to_create ?? [];
-  if (filesToCreate.length > 0) {
-    const missing = filesToCreate
-      .map((f) => f.replace(/^\.\//, ''))
-      .filter((f) => !fs.existsSync(path.join(cwd, f)));
-    if (missing.length > 0) {
-      const list = missing.map((m) => `- ${m}`).join('\n');
-      const failure: FailureContext = {
-        task_id: taskId ?? 'UNKNOWN',
-        status: 'FAILED',
-        failure_type: 'RUNTIME_ERROR',
-        error: `Task mengklaim membuat file tetapi file tidak ditemukan di disk:\n${list}`,
-        affected_files: missing,
-        next_action: 'Buat file-file yang diklaim pada spesifikasi task di atas sebelum menandai selesai.',
-      };
-      throw new GuardError(
-        `Task mengklaim membuat file tetapi file tidak ditemukan di disk:\n${list}\n\nBuat file tersebut, atau jalankan: pakeai done --force`,
-        failure
-      );
-    }
   }
 
   if (changed.length > 0 && !spec.validation_commands?.length) {

@@ -196,83 +196,7 @@ export function TaskDetailDialog({ task, isOpen, onClose, onStatusChange }: Task
             </div>
           )}
 
-          {/* Bounded Context (Isolasi File) */}
-          <div className="space-y-2">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <FileCode className="h-3.5 w-3.5" /> Bounded Context (Isolasi File)
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {/* Files to create */}
-              <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-1.5">
-                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 block">
-                  File Wajib/Boleh Dibuat:
-                </span>
-                {ctx?.files_to_create && ctx.files_to_create.length > 0 ? (
-                  <ul className="space-y-1 font-mono text-xs">
-                    {ctx.files_to_create.map((f, i) => (
-                      <li key={i} className="text-foreground/90 break-all">
-                        + {f}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <span className="text-xs text-muted-foreground italic">(tidak ada)</span>
-                )}
-              </div>
-
-              {/* Files to modify */}
-              <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-1.5">
-                <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 block">
-                  File Boleh Dimodifikasi:
-                </span>
-                {ctx?.files_to_modify && ctx.files_to_modify.length > 0 ? (
-                  <ul className="space-y-1 font-mono text-xs">
-                    {ctx.files_to_modify.map((f, i) => (
-                      <li key={i} className="text-foreground/90 break-all">
-                        ~ {f}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <span className="text-xs text-muted-foreground italic">(tidak ada)</span>
-                )}
-              </div>
-
-              {/* Readonly files */}
-              {ctx?.files_readonly && ctx.files_readonly.length > 0 && (
-                <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-1.5">
-                  <span className="text-xs font-semibold text-muted-foreground block">
-                    File Referensi (Read-Only):
-                  </span>
-                  <ul className="space-y-1 font-mono text-xs text-muted-foreground">
-                    {ctx.files_readonly.map((f, i) => (
-                      <li key={i} className="break-all">
-                        * {f}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Forbidden files */}
-              {ctx?.forbidden && ctx.forbidden.length > 0 && (
-                <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5 space-y-1.5">
-                  <span className="text-xs font-semibold text-destructive flex items-center gap-1">
-                    <Ban className="h-3 w-3" /> Dilarang Keras Disentuh:
-                  </span>
-                  <ul className="space-y-1 font-mono text-xs text-destructive/90">
-                    {ctx.forbidden.map((f, i) => (
-                      <li key={i} className="break-all">
-                        x {f}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Acceptance Criteria */}
+          {/* Acceptance Criteria (Fokus Utama) */}
           {task.acceptanceCriteria && task.acceptanceCriteria.length > 0 && (
             <div className="space-y-1.5">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
@@ -289,23 +213,7 @@ export function TaskDetailDialog({ task, isOpen, onClose, onStatusChange }: Task
             </div>
           )}
 
-          {/* Implementation Steps */}
-          {ctx?.implementation_steps && ctx.implementation_steps.length > 0 && (
-            <div className="space-y-1.5">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                <ListOrdered className="h-3.5 w-3.5" /> Langkah Implementasi
-              </h3>
-              <ol className="p-3 rounded-lg border border-border bg-muted/20 space-y-2 list-decimal list-inside text-xs text-foreground/90">
-                {ctx.implementation_steps.map((step, i) => (
-                  <li key={i} className="leading-relaxed">
-                    <span>{step.replace(/^\d+[\.\)]\s*/, '')}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
-
-          {/* Validation Commands */}
+          {/* Validation Commands (Fokus Utama) */}
           {ctx?.validation_commands && ctx.validation_commands.length > 0 && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -330,6 +238,99 @@ export function TaskDetailDialog({ task, isOpen, onClose, onStatusChange }: Task
                     <span>{cmd}</span>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Implementation Steps */}
+          {ctx?.implementation_steps && ctx.implementation_steps.length > 0 && (
+            <div className="space-y-1.5">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <ListOrdered className="h-3.5 w-3.5" /> Langkah Implementasi
+              </h3>
+              <ol className="p-3 rounded-lg border border-border bg-muted/20 space-y-2 list-decimal list-inside text-xs text-foreground/90">
+                {ctx.implementation_steps.map((step, i) => (
+                  <li key={i} className="leading-relaxed">
+                    <span>{step.replace(/^\d+[\.\)]\s*/, '')}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {/* Panduan Struktur File (Rekomendasi Arsitektural - Hanya tampil jika ada file) */}
+          {((ctx?.files_to_create?.length ?? 0) > 0 ||
+            (ctx?.files_to_modify?.length ?? 0) > 0 ||
+            (ctx?.files_readonly?.length ?? 0) > 0 ||
+            (ctx?.forbidden?.length ?? 0) > 0) && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <FileCode className="h-3.5 w-3.5" /> Panduan Struktur File (Rekomendasi Arsitektur)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {/* Files to create */}
+                {ctx?.files_to_create && ctx.files_to_create.length > 0 && (
+                  <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-1.5">
+                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 block">
+                      Rekomendasi File Dibuat:
+                    </span>
+                    <ul className="space-y-1 font-mono text-xs">
+                      {ctx.files_to_create.map((f, i) => (
+                        <li key={i} className="text-foreground/90 break-all">
+                          + {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Files to modify */}
+                {ctx?.files_to_modify && ctx.files_to_modify.length > 0 && (
+                  <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-1.5">
+                    <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 block">
+                      Rekomendasi File Dimodifikasi:
+                    </span>
+                    <ul className="space-y-1 font-mono text-xs">
+                      {ctx.files_to_modify.map((f, i) => (
+                        <li key={i} className="text-foreground/90 break-all">
+                          ~ {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Readonly files */}
+                {ctx?.files_readonly && ctx.files_readonly.length > 0 && (
+                  <div className="p-3 rounded-lg border border-border bg-muted/10 space-y-1.5">
+                    <span className="text-xs font-semibold text-muted-foreground block">
+                      File Referensi (Read-Only):
+                    </span>
+                    <ul className="space-y-1 font-mono text-xs text-muted-foreground">
+                      {ctx.files_readonly.map((f, i) => (
+                        <li key={i} className="break-all">
+                          * {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Forbidden files */}
+                {ctx?.forbidden && ctx.forbidden.length > 0 && (
+                  <div className="p-3 rounded-lg border border-destructive/30 bg-destructive/5 space-y-1.5">
+                    <span className="text-xs font-semibold text-destructive flex items-center gap-1">
+                      <Ban className="h-3 w-3" /> Dilarang Keras Disentuh:
+                    </span>
+                    <ul className="space-y-1 font-mono text-xs text-destructive/90">
+                      {ctx.forbidden.map((f, i) => (
+                        <li key={i} className="break-all">
+                          x {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           )}
