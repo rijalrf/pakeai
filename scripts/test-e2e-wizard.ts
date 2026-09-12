@@ -26,9 +26,10 @@ async function runTest() {
   });
   assert.strictEqual(loginRes.status, 200, 'Login status harus 200');
   const setCookie = loginRes.headers.get('set-cookie') || regCookie || '';
-  const tokenMatch = setCookie.match(/better-auth\.session_token=([^;]+)/);
+  const tokenMatch = setCookie.match(/(__Secure-)?better-auth\.session_token=([^;]+)/);
   assert(tokenMatch, 'Cookie session token harus ada');
-  const cookieHeader = `better-auth.session_token=${tokenMatch[1]}`;
+  const cookieName = tokenMatch[1] ? '__Secure-better-auth.session_token' : 'better-auth.session_token';
+  const cookieHeader = `${cookieName}=${tokenMatch[2]}`;
   console.log('Login berhasil, session token diperoleh');
 
   // Helper authed fetch
@@ -162,17 +163,16 @@ async function runTest() {
   assert(tasksGetJson.tasks.length > 0, 'Tasks harus ada');
   console.log(`Tasks idempotent check OK: ${tasksGetJson.tasks.length} tasks.`);
 
-  // Verifikasi file esensial (.env.example, .env, .gitignore, index.html)
-  const allCreatedFiles = tasksGetJson.tasks.flatMap((t: any) => (t.aiContext?.files_to_create || []));
-  console.log('Total files_to_create di semua tasks:', allCreatedFiles.length);
-  assert(allCreatedFiles.includes('.env.example'), 'Harus ada file .env.example di files_to_create');
-  assert(allCreatedFiles.includes('.env'), 'Harus ada file .env di files_to_create');
-  assert(allCreatedFiles.includes('.gitignore'), 'Harus ada file .gitignore di files_to_create');
-  console.log('Verifikasi file esensial (.env.example, .env, .gitignore) OK.');
+  // Verifikasi struktur task (Acceptance Criteria & Validation Commands multi-stack)
+  for (const t of tasksGetJson.tasks) {
+    assert(Array.isArray(t.acceptanceCriteria) && t.acceptanceCriteria.length > 0, `Task #${t.order} harus memiliki acceptanceCriteria`);
+    assert(Array.isArray(t.aiContext?.validation_commands) && t.aiContext.validation_commands.length > 0, `Task #${t.order} harus memiliki validation_commands`);
+  }
+  console.log(`Verifikasi semua ${tasksGetJson.tasks.length} task memiliki acceptance criteria dan validation commands OK.`);
 
   // Verifikasi validation_commands dinamis
   const allValCmds = tasksGetJson.tasks.flatMap((t: any) => (t.aiContext?.validation_commands || []));
-  assert(allValCmds.some((cmd: string) => cmd.includes('build')), 'Harus ada validation command build');
+  assert(allValCmds.length > 0, 'Harus ada validation commands terdaftar');
   console.log('Verifikasi validation commands dinamis OK.');
 
   console.log('\n--- 8B. TEST EXPORT PAKET ZIP & WIZARD STEP UNLOCK ---');
@@ -261,29 +261,38 @@ async function runTest() {
     const ctxJson = await ctxRes.json();
     console.log('Agent context task preview:', (ctxJson.markdown || '').substring(0, 80));
 
-    // Test guard: periksa bahwa guard memuat files_to_create
-    assert(Array.isArray(ctxJson.guard?.files_to_create), 'Guard harus memuat files_to_create');
-    console.log(`Guard files_to_create terdaftar: ${ctxJson.guard.files_to_create.length} files`);
+    // Test guard: periksa bahwa guard memuat validation_commands
+    assert(Array.isArray(ctxJson.guard?.validation_commands), 'Guard harus memuat validation_commands');
+    console.log(`Guard validation_commands terdaftar: ${ctxJson.guard.validation_commands.length} commands`);
 
-    // Test simulasi guard fail jika claimed file tidak ada di disk
+    // Test simulasi guard lolos pada command sukses
     const { runGuard, GuardError } = await import('../packages/cli/src/guard.js');
+    await runGuard(
+      {
+        validation_commands: ['echo "validation ok"'],
+      },
+      process.cwd(),
+      taskId
+    );
+    console.log('Verifikasi CLI Guard lolos pada command valid OK.');
+
+    // Test simulasi guard fail jika validation command gagal
     let guardBlocked = false;
     try {
       await runGuard(
         {
-          files_to_create: ['non_existent_file_test_xyz_123.ts'],
-          validation_commands: [],
+          validation_commands: ['sh -c "exit 1"'],
         },
         process.cwd(),
         taskId
       );
     } catch (gErr: any) {
-      if (gErr instanceof GuardError && gErr.failureContext?.failure_type === 'RUNTIME_ERROR') {
+      if (gErr instanceof GuardError && gErr.failureContext?.failure_type === 'TEST_FAILURE') {
         guardBlocked = true;
       }
     }
-    assert.strictEqual(guardBlocked, true, 'Guard harus memblokir jika file yang diklaim dibuat tidak ada di disk');
-    console.log('Verifikasi CLI Guard menolak missing claimed files OK.');
+    assert.strictEqual(guardBlocked, true, 'Guard harus memblokir jika validation_commands gagal');
+    console.log('Verifikasi CLI Guard memblokir jika validation command gagal OK.');
 
     // Agent done task
     const doneRes = await agentFetch(`/api/agent/tasks/${taskId}/complete`, { method: 'POST' });

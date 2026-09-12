@@ -32,7 +32,6 @@ import { auditTasksSecurity } from './lib/ai/security-audit.js';
 import { replyChat, finalizeChatSession, recommendTechStack, generateTreeFromBrd } from './lib/ai/chat.js';
 import { buildZip } from './lib/zip.js';
 import { parseStackEntry, resolveStackContract } from './lib/ai/stack-contract.js';
-import { validateEssentialFiles, autoInjectEssentialFiles } from './lib/ai/essential-files-validator.js';
 
 // Hash token utility (mirrors requireAgent.middleware)
 function hashToken(token: string): string {
@@ -760,14 +759,21 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
     );
   }
 
-  mdParts.push(
-    `#### Bounded Context (Isolasi File)`,
-    `- File yang WAJIB/BOLEH dibuat: ${(ctx.files_to_create ?? []).join(', ') || '_tidak ada_'}`,
-    `- File yang BOLEH dimodifikasi: ${(ctx.files_to_modify ?? []).join(', ') || '_tidak ada_'}`,
-    `- File READ-ONLY (referensi saja): ${(ctx.files_readonly ?? []).join(', ') || '_tidak ada_'}`,
-    `- File yang DILARANG KERAS disentuh: ${(ctx.forbidden ?? []).join(', ') || '_tidak ada_'}`,
-    ``
-  );
+  const hasBoundedFiles = (ctx.files_to_create?.length ?? 0) > 0 ||
+    (ctx.files_to_modify?.length ?? 0) > 0 ||
+    (ctx.files_readonly?.length ?? 0) > 0 ||
+    (ctx.forbidden?.length ?? 0) > 0;
+
+  if (hasBoundedFiles) {
+    mdParts.push(
+      `#### Panduan Struktur File (Rekomendasi Arsitektural)`,
+      `- Rekomendasi file dibuat: ${(ctx.files_to_create ?? []).join(', ') || '_tidak ada_'}`,
+      `- Rekomendasi file dimodifikasi: ${(ctx.files_to_modify ?? []).join(', ') || '_tidak ada_'}`,
+      `- File READ-ONLY (referensi): ${(ctx.files_readonly ?? []).join(', ') || '_tidak ada_'}`,
+      `- File yang dibatasi (forbidden): ${(ctx.forbidden ?? []).join(', ') || '_tidak ada_'}`,
+      ``
+    );
+  }
 
   if (ctx.implementation_steps && ctx.implementation_steps.length > 0) {
     mdParts.push(`#### Langkah Implementasi Konkret`);
@@ -819,7 +825,7 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
       layer: task.layer,
       forbidden: ctx.forbidden ?? [],
       files_readonly: ctx.files_readonly ?? [],
-      files_to_create: ctx.files_to_create ?? [],
+      files_to_create: [], // Tidak lagi memaksa disk check fisik di CLI guard
       validation_commands: ctx.validation_commands ?? [],
     },
   });
@@ -1138,9 +1144,9 @@ Untuk SETIAP task, kerjakan langkah ini PERSIS:
 \`\`\`
 pakeai next        # ambil task berikutnya
 pakeai start       # tandai IN_PROGRESS
-pakeai context     # baca Markdown bounded context task aktif
-# >>> kerjakan task HANYA pada file yang BOLEH dibuat/dimodifikasi <<<
-# >>> hormati file yang DILARANG <<<
+pakeai context     # baca detail kebutuhan dan kriteria penerimaan task aktif
+# >>> kerjakan task fokus pada Acceptance Criteria dan implementasi kode <<<
+# >>> jalankan perintah verifikasi mandiri sebelum menyelesaikan task <<<
 pakeai done        # tandai selesai
 \`\`\`
 
@@ -1160,7 +1166,7 @@ Setelah semua task DONE, aplikasi siap dijalankan di komputer lokal user:
 
 ## Aturan Penting
 - **Isolasi project**: agent HANYA boleh membaca task/BRD dari project ini (server menegakkan via token).
-- **Bounded context**: hanya sentuh file di \`files_to_create\` / \`files_to_modify\`. DILARANG ubah file di \`forbidden\`.
+- **Fokus Task**: penuhi Acceptance Criteria dan loloskan Validation Commands. Struktur file adalah panduan arsitektur.
 - **Checkpoint gate**: jika setelah \`done\` ada pesan checkpoint, BERHENTI dan minta approval user sebelum lanjut.
 - **Layer transition**: jika layer (DATABASE/BACKEND/FRONTEND) sudah selesai, minta approval user.
 - **Testing**: sebelum panggil \`pakeai done\`, pastikan kode jalan lancar lokal dan test acceptance criteria terpenuhi.
@@ -1502,13 +1508,6 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
       } catch (retryErr) {
         console.warn('[API-COVERAGE] Retry perbaikan task gagal, gunakan hasil pertama:', (retryErr as Error).message);
       }
-    }
-
-    // Validasi file esensial deterministik (.env.example, .env, index.html, main.tsx/main.ts, tailwind, dsb.)
-    const essentialCheck = validateEssentialFiles(generated, stackContract);
-    if (!essentialCheck.valid) {
-      console.warn(`[ESSENTIAL-FILES] Berkas esensial terlewat: ${essentialCheck.missing.join(', ')}. Melakukan auto-inject deterministik...`);
-      generated = autoInjectEssentialFiles(generated, stackContract, essentialCheck.missing);
     }
 
     // Validasi DAG Deterministik (Bab 35 & 36): deteksi siklus, buang self-dep, dan urutkan topologis
