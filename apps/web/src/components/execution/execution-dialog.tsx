@@ -96,7 +96,8 @@ Untuk setiap task yang dikerjakan:
 4. Implementasikan kode sesuai kriteria penerimaan dan batasan file.
 5. Verifikasi bahwa kode berjalan dengan baik dan bebas error.
 6. PENTING: Tampilkan hasil pekerjaan dan MINTA PERSETUJUAN PENGGUNA sebelum menandai selesai.
-7. Setelah disetujui pengguna, jalankan \`pakeai done\` untuk menyelesaikan task.`
+7. Setelah disetujui pengguna, jalankan \`pakeai done\` untuk menyelesaikan task.
+8. PENTING (Checkpoint Gate): Jika sistem meminta verifikasi checkpoint setelah \`done\`, berhenti dan minta konfirmasi pengguna sebelum lanjut.`
       : `## 2. Loop Eksekusi Otonom (Full Sampai Selesai Tanpa Persetujuan)
 Jalankan loop berikut secara otonom tanpa henti hingga seluruh task berstatus DONE:
 1. Jalankan \`pakeai next\` untuk mengambil task aktif berikutnya. Jika sudah tidak ada task lagi, hentikan loop.
@@ -104,7 +105,9 @@ Jalankan loop berikut secara otonom tanpa henti hingga seluruh task berstatus DO
 3. Jalankan \`pakeai context\` untuk membaca batasan Bounded Context (file yang boleh/dilarang diubah serta kriteria penerimaan).
 4. Implementasikan kode sesuai kriteria penerimaan dan batasan file secara tuntas.
 5. Verifikasi bahwa kode berjalan dengan baik dan bebas error sintaks.
-6. Langsung jalankan \`pakeai done\` untuk menyelesaikan task, lalu otomatis lanjutkan ke task berikutnya.`;
+6. Langsung jalankan \`pakeai done\` untuk menyelesaikan task.
+7. PENTING (Checkpoint Gate): Jika sistem meminta verifikasi checkpoint setelah \`done\`, berhenti dan minta konfirmasi pengguna sebelum melanjutkan ke task berikutnya.
+8. Otomatis ulangi dari langkah 1.`;
 
   const masterPromptText = `# Master Prompt — AI Agent Loop untuk Proyek "${projectName || projectId}"
 
@@ -384,10 +387,24 @@ ${executionLoopText}
                   className="font-mono text-xs h-8 bg-background border-border"
                 />
                 {inputToken && (
-                  <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-500/30 shrink-0">
-                    <CheckCircle2 className="h-3 w-3 mr-1" />
-                    Terpasang
-                  </Badge>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-500/30 shrink-0">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      Terpasang
+                    </Badge>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        localStorage.removeItem('pakeai_active_pat');
+                        setInputToken('');
+                      }}
+                      className="h-8 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 px-2"
+                    >
+                      Lepas Token
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>

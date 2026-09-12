@@ -172,10 +172,17 @@ async function runTest() {
   assert.strictEqual(stepBackJson.wizardStep, 'tree', 'Wizard step harus menjadi tree');
   console.log('Unlock tahap sebelumnya (wizard-step: tree) OK.');
 
-  // Kembalikan ke board
-  await authedFetch(`/api/projects/${projectId}/wizard-step`, {
+  // Test bahwa lompat maju dilarang (harus 400)
+  const invalidForwardRes = await authedFetch(`/api/projects/${projectId}/wizard-step`, {
     method: 'POST',
     body: JSON.stringify({ step: 'board' }),
+  });
+  assert.strictEqual(invalidForwardRes.status, 400, 'Lompat maju via wizard-step harus 400');
+  console.log('Validasi arah mundur (tolak lompat maju) OK.');
+
+  // Kembalikan ke board via tasks/generate
+  await authedFetch(`/api/projects/${projectId}/tasks/generate`, {
+    method: 'POST',
   });
   console.log('Restore wizard-step ke board OK.');
 

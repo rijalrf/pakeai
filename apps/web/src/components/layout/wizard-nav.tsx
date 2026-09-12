@@ -1,5 +1,5 @@
 // WizardNav: Bar navigasi sticky top (di bawah Header) di luar kontainer halaman
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 
@@ -19,26 +19,36 @@ export interface WizardNavConfig {
 
 interface WizardNavContextType {
   config: WizardNavConfig | null;
-  setConfig: (config: WizardNavConfig | null) => void;
+  setConfig: React.Dispatch<React.SetStateAction<WizardNavConfig | null>>;
+  callbacksRef: React.MutableRefObject<{
+    onBack?: () => void;
+    onNext?: () => void;
+  }>;
 }
 
 const WizardNavContext = createContext<WizardNavContextType>({
   config: null,
   setConfig: () => {},
+  callbacksRef: { current: {} },
 });
 
 export function WizardNavProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<WizardNavConfig | null>(null);
+  const callbacksRef = useRef<{ onBack?: () => void; onNext?: () => void }>({});
 
   return (
-    <WizardNavContext.Provider value={{ config, setConfig }}>
+    <WizardNavContext.Provider value={{ config, setConfig, callbacksRef }}>
       {children}
     </WizardNavContext.Provider>
   );
 }
 
 export function useWizardNav(config: WizardNavConfig | null) {
-  const { setConfig } = useContext(WizardNavContext);
+  const { setConfig, callbacksRef } = useContext(WizardNavContext);
+
+  // Selalu perbarui callback ref agar tidak terjadi stale closure saat dipanggil
+  callbacksRef.current.onBack = config?.back?.onClick;
+  callbacksRef.current.onNext = config?.next?.onClick;
 
   useEffect(() => {
     setConfig(config);
@@ -49,6 +59,7 @@ export function useWizardNav(config: WizardNavConfig | null) {
     config?.back?.label,
     config?.back?.disabled,
     config?.back?.loading,
+    config?.back?.variant,
     config?.next?.label,
     config?.next?.disabled,
     config?.next?.loading,
@@ -58,7 +69,7 @@ export function useWizardNav(config: WizardNavConfig | null) {
 }
 
 export function WizardNav() {
-  const { config } = useContext(WizardNavContext);
+  const { config, callbacksRef } = useContext(WizardNavContext);
 
   if (!config || (!config.back && !config.next && !config.extra)) {
     return null;
@@ -73,7 +84,7 @@ export function WizardNav() {
             type="button"
             variant={config.back.variant || 'outline'}
             size="sm"
-            onClick={config.back.onClick}
+            onClick={() => callbacksRef.current.onBack?.()}
             disabled={config.back.disabled || config.back.loading}
             className="gap-1.5 text-xs h-8 font-medium cursor-pointer"
           >
@@ -96,7 +107,7 @@ export function WizardNav() {
             type="button"
             variant={config.next.variant || 'default'}
             size="sm"
-            onClick={config.next.onClick}
+            onClick={() => callbacksRef.current.onNext?.()}
             disabled={config.next.disabled || config.next.loading}
             className="gap-1.5 text-xs h-8 font-medium cursor-pointer"
           >

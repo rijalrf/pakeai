@@ -40,12 +40,13 @@ function hashToken(token: string): string {
 // Urutan tahapan wizard proyek (interview dihapus, langsung chat -> techstack)
 const STAGE_ORDER: Record<string, number> = {
   chat: 0,
+  interview: 1, // backward compat
   techstack: 1,
   brd: 2,
   tree: 3,
   board: 4,
   guide: 5, // Kompatibilitas data lama
-  done: 5,
+  done: 6,
 };
 
 function isStageLocked(currentStep: string | undefined | null, targetStage: string): boolean {
@@ -1014,9 +1015,10 @@ app.get('/api/projects/:id/brd/download', requireUser, async (req: AuthedRequest
   }
 
   const md = buildBrdMarkdown(project, project.brd);
+  const safeName = project.name.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
 
   res.setHeader('Content-Type', 'text/markdown');
-  res.setHeader('Content-Disposition', `attachment; filename="${project.name.replace(/\s+/g, '_')}_BRD.md"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}_BRD.md"`);
   res.send(md);
 });
 
@@ -1045,7 +1047,8 @@ app.get('/api/projects/:id/export.zip', requireUser, async (req: AuthedRequest, 
     { name: 'TASKS.md', content: tasksMd },
   ]);
 
-  const filename = `${project.name.replace(/\s+/g, '_')}_paket.zip`;
+  const safeName = project.name.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+  const filename = `${safeName}_paket.zip`;
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Length', String(zipBuffer.length));
@@ -1070,6 +1073,12 @@ app.post('/api/projects/:id/wizard-step', requireUser, async (req: AuthedRequest
     include: { chatSession: { select: { id: true } } },
   });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
+
+  const currentRank = STAGE_ORDER[project.wizardStep ?? 'techstack'] ?? 1;
+  const targetRank = STAGE_ORDER[parsed.data.step] ?? 0;
+  if (targetRank >= currentRank) {
+    return res.status(400).json({ error: 'Hanya diizinkan berpindah mundur ke tahap sebelumnya.' });
+  }
 
   await prisma.project.update({
     where: { id: project.id },
