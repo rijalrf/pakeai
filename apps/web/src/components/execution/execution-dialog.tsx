@@ -1,7 +1,7 @@
 // Dialog Popup Panduan Eksekusi: Download BRD, Download Paket ZIP, dan Master Prompt Coding Agent
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { api } from '@/lib/http';
+import { api, downloadFile } from '@/lib/http';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -28,36 +28,13 @@ interface ExecutionDialogProps {
   onClose: () => void;
 }
 
-async function triggerDownload(url: string, defaultFilename: string) {
-  try {
-    const res = await fetch(url, { credentials: 'include' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const disposition = res.headers.get('content-disposition');
-    let filename = defaultFilename;
-    if (disposition && disposition.includes('filename=')) {
-      const match = disposition.match(/filename="?([^"]+)"?/);
-      if (match && match[1]) filename = match[1];
-    }
-    const blob = await res.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(blobUrl);
-  } catch (err) {
-    console.error('Gagal mengunduh:', err);
-  }
-}
-
 export function ExecutionDialog({ projectId, projectName, isOpen, onClose }: ExecutionDialogProps) {
   const [view, setView] = useState<'menu' | 'agent'>('menu');
   const [approvalMode, setApprovalMode] = useState<'approval' | 'full_auto'>('approval');
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [downloadingBrd, setDownloadingBrd] = useState(false);
   const [downloadingZip, setDownloadingZip] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const [inputToken, setInputToken] = useState(() => {
     return localStorage.getItem('pakeai_active_pat') || '';
@@ -141,14 +118,28 @@ ${executionLoopText}
 
   const handleDownloadBrd = async () => {
     setDownloadingBrd(true);
-    await triggerDownload(`/api/projects/${projectId}/brd/download`, `${projectName || 'Proyek'}_BRD.md`);
-    setDownloadingBrd(false);
+    setDownloadError(null);
+    try {
+      await downloadFile(`/api/projects/${projectId}/brd/download`, `${projectName || 'Proyek'}_BRD.md`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal mengunduh BRD.';
+      setDownloadError(msg);
+    } finally {
+      setDownloadingBrd(false);
+    }
   };
 
   const handleDownloadZip = async () => {
     setDownloadingZip(true);
-    await triggerDownload(`/api/projects/${projectId}/export.zip`, `${projectName || 'Proyek'}_paket.zip`);
-    setDownloadingZip(false);
+    setDownloadError(null);
+    try {
+      await downloadFile(`/api/projects/${projectId}/export.zip`, `${projectName || 'Proyek'}_paket.zip`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal mengunduh Paket Lengkap.';
+      setDownloadError(msg);
+    } finally {
+      setDownloadingZip(false);
+    }
   };
 
   return (
@@ -187,6 +178,21 @@ ${executionLoopText}
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Banner Pesan Error Unduhan */}
+        {downloadError && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive flex items-center justify-between gap-2">
+            <span>{downloadError}</span>
+            <button
+              type="button"
+              onClick={() => setDownloadError(null)}
+              className="p-1 hover:bg-destructive/20 rounded text-destructive shrink-0 cursor-pointer"
+              aria-label="Tutup pesan error"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* VIEW 1: Menu 3 Opsi */}
         {view === 'menu' && (
