@@ -58,10 +58,12 @@ export async function generateTasksFromRoadmap(args: {
   projectName: string;
   appRoot?: string; // mis. "apps/api", "apps/web"
   brd?: {
+    userStories?: Array<{ id: string; persona: string; action: string; benefit: string }>;
     functionalRequirements?: Array<{ id: string; title: string; description: string; priority?: string }>;
     businessRules?: Array<{ id: string; description: string }>;
     dataModels?: Array<{ name: string; description?: string; fields: Array<{ name: string; type: string; required?: boolean }>; relations?: string[] }>;
     apiEndpoints?: Array<{ method: string; path: string; description: string; requestBody?: string; responseBody?: string; authRequired?: boolean }>;
+    edgeCases?: Array<{ id: string; scenario: string; expectedBehavior: string }>;
     techRequirements?: string[];
   };
   uiSpec?: UiSpecData | null;
@@ -96,12 +98,20 @@ ATURAN WAJIB LAYER BACKEND (KEAMANAN, ERROR HANDLING, VALIDASI):
 15. INTEGRITAS RELASI: Endpoint DELETE WAJIB memeriksa relasi aktif (record PENDING/ACTIVE). Jika ada relasi aktif, TOLAK penghapusan dengan HTTP 409 Conflict, BUKAN silent cascade delete.
 16. PAGINATION: Setiap endpoint GET yang mengembalikan daftar WAJIB menerima query params ?page=1&limit=20 dan mengembalikan { data: T[], meta: { total, page, limit, totalPages } }.`;
 
+  const storiesText = args.brd?.userStories?.length
+    ? `\nUSER STORIES TERSEDIA:\n${args.brd.userStories.map((s) => `- [${s.id}] ${s.persona}: ${s.action}, ${s.benefit}`).join('\n')}`
+    : '';
+
   const reqText = args.brd?.functionalRequirements?.length
     ? `\nKEBUTUHAN FUNGSIONAL TERSEDIA:\n${args.brd.functionalRequirements.map((r) => `- [${r.id}] ${r.title}: ${r.description}`).join('\n')}`
     : '';
 
   const rulesText = args.brd?.businessRules?.length
     ? `\nATURAN BISNIS TERSEDIA:\n${args.brd.businessRules.map((b) => `- [${b.id}] ${b.description}`).join('\n')}`
+    : '';
+
+  const edgeCasesText = args.brd?.edgeCases?.length
+    ? `\nEDGE CASES & SKENARIO KEGAGALAN TERSEDIA:\n${args.brd.edgeCases.map((e) => `- [${e.id}] Skenario: ${e.scenario} -> Ekspektasi: ${e.expectedBehavior}`).join('\n')}`
     : '';
 
   const dataModelsText = args.brd?.dataModels?.length
@@ -120,8 +130,10 @@ ATURAN WAJIB LAYER BACKEND (KEAMANAN, ERROR HANDLING, VALIDASI):
 
   const user = `ROADMAP:
 ${JSON.stringify(args.roadmap, null, 2)}
+${storiesText}
 ${reqText}
 ${rulesText}
+${edgeCasesText}
 ${dataModelsText}
 ${apiEndpointsText}
 ${uiSpecText}
@@ -211,13 +223,23 @@ Aturan acceptance criteria (HARUS DIPATUHI):
 - Setiap acceptance criterion HARUS measurable dan testable, bukan subjektif.
 - BACKEND: "Endpoint [METHOD] [PATH] merespons HTTP status yang sesuai dan format JSON valid sesuai contract".
 - FRONTEND: "Halaman [Nama] memuat data dari API [PATH] dengan skeleton loader saat loading, AlertBanner saat error, empty state saat data kosong, dan menampilkan data secara dinamis. Label terhubung ke input via htmlFor/id."
-- INTEGRATION: "Jalankan npm run dev di root project, akses http://localhost:PORT di browser, halaman utama tampil tanpa error console".
+- INTEGRATION: "Suite Playwright E2E test berhasil mengeksekusi critical user journeys tanpa kegagalan (npx playwright test lolos) dan aplikasi dapat diakses di http://localhost:PORT".
 
 Wajib pada layer INTEGRATION include minimal 4 task khusus ini:
-1. Wire Database to Backend API - pastikan Prisma client ter-import dan terhubung di semua route controller
-2. Wire Frontend to Backend API - buat API client/fetch wrapper dengan base URL terkonfigurasi dan hubungkan seluruh page ke API
-3. Setup Testing Infrastructure - config test runner + basic test setup scripts
-4. Local E2E Verification & Smoke Test - command npm run dev berhasil, landing page render, dan minimal 1 alur bisnis utama berhasil dijalankan
+1. Wire Database to Backend API - pastikan Prisma client ter-import dan terhubung di semua route controller.
+2. Wire Frontend to Backend API - buat API client/fetch wrapper dengan base URL terkonfigurasi dan hubungkan seluruh page ke API.
+3. Setup Playwright E2E Testing Infrastructure:
+   - Konfigurasi Playwright (playwright.config.ts dengan baseURL dari env, trace on failure, dan screenshot).
+   - Auth fixture file (e2e/fixtures/auth.ts) yang reusable untuk bypass alur login berulang.
+   - Script test data seeding untuk isolasi test.
+   - Script package.json: "test:e2e": "playwright test", "test:e2e:ui": "playwright test --ui".
+   - files_to_create WAJIB menyertakan: ["playwright.config.ts", "e2e/fixtures/auth.ts"].
+4. Critical User Journey E2E Tests (Playwright):
+   - Identifikasi 3-5 alur kritis (critical user journeys) dari BRD (misal: onboarding/register -> login -> alur transaksi utama -> verifikasi akhir).
+   - Tulis test suite Playwright yang menguji happy path serta failure states realistis (input kosong, unauthorized, error boundary).
+   - Gunakan selector resilient: role-based (getByRole, getByLabel) atau data-testid (dilarang selector XPath/CSS rapuh).
+   - validation_commands WAJIB mencakup: "npx playwright test --reporter=list".
+   - files_to_create WAJIB menyertakan: ["e2e/auth.spec.ts", "e2e/critical-journey.spec.ts"].
 
 Minimal 1 task per fitur. Urutkan order global. Pastikan semua task acceptance criteria testable sebelum submit. Kembalikan HANYA JSON.`;
 

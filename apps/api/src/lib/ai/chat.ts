@@ -71,14 +71,17 @@ Tugas:
 1. Hasilkan nama project yang menarik, ringkas, dan relevan ("name").
 2. Buat ringkasan komprehensif 1-2 paragraf padat ("summary") yang merangkum:
    - Masalah spesifik yang ingin dipecahkan
-   - Target pengguna utama
+   - Target pengguna utama dan persona pengguna
+   - Goals vs Non-Goals MVP
    - Fitur-fitur inti aplikasi (MVP)
    - Entitas/data utama yang dikelola
    - Alur kerja utama aplikasi dari sudut pandang pengguna
+   - Edge cases & failure states kritis
+   - Success metrics utama
 Output JSON WAJIB:
 {
   "name": "Nama Project",
-  "summary": "Ringkasan komprehensif mencakup masalah, pengguna, fitur utama, entitas data, dan alur aplikasi."
+  "summary": "Ringkasan komprehensif mencakup masalah, pengguna & persona, goals/non-goals, fitur utama, entitas data, alur aplikasi, edge cases, dan success metrics."
 }`,
     user: chatText,
     schema: z.object({ name: z.string(), summary: z.string() }),

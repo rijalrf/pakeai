@@ -26,6 +26,7 @@ const REASONING_AGENTS = new Set([
   'replyChat',
   'finalizeChatSession',
   'generateTreeFromBrd',
+  'SecurityAuditor',
 ]);
 
 export function resolveModel(opts?: { tier?: ModelTier; agentName?: string; modelOverride?: string }): string {

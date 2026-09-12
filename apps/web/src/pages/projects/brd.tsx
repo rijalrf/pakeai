@@ -12,6 +12,13 @@ type BrdContent = {
   overview?: string;
   goals?: string[];
   features?: Array<{ name: string; description?: string }>;
+  userStories?: Array<{
+    id: string;
+    persona: string;
+    action: string;
+    benefit: string;
+    acceptanceCriteria?: string[];
+  }>;
   functionalRequirements?: Array<{
     id: string;
     title: string;
@@ -22,6 +29,15 @@ type BrdContent = {
   businessRules?: Array<{
     id: string;
     description: string;
+  }>;
+  edgeCases?: Array<{
+    id: string;
+    scenario: string;
+    expectedBehavior: string;
+  }>;
+  successMetrics?: Array<{
+    metric: string;
+    target: string;
   }>;
   techRequirements?: string[];
   nonFunctional?: string[];
@@ -189,6 +205,39 @@ export function BrdPage() {
           </Card>
         )}
 
+        {/* User Stories (US-xxx) */}
+        {brd?.userStories && brd.userStories.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">User Stories</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {brd.userStories.map((s) => (
+                  <div key={s.id} className="p-3 rounded-md border border-border bg-card/50 flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="default" className="font-mono text-xs">
+                        {s.id}
+                      </Badge>
+                      <span className="font-semibold text-xs text-primary">{s.persona}</span>
+                    </div>
+                    <p className="text-xs text-foreground font-medium">
+                      {s.action}, <span className="text-muted-foreground font-normal">{s.benefit}</span>
+                    </p>
+                    {s.acceptanceCriteria && s.acceptanceCriteria.length > 0 && (
+                      <ul className="list-disc list-inside text-[11px] text-muted-foreground space-y-0.5 mt-1">
+                        {s.acceptanceCriteria.map((ac, idx) => (
+                          <li key={idx}>{ac}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Functional Requirements (FR-xxx) */}
         {brd?.functionalRequirements && brd.functionalRequirements.length > 0 && (
           <Card>
@@ -237,6 +286,51 @@ export function BrdPage() {
                       {b.id}
                     </Badge>
                     <span className="pt-0.5">{b.description}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Edge Cases & Failure States (EC-xxx) */}
+        {brd?.edgeCases && brd.edgeCases.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Edge Cases &amp; Skenario Kegagalan</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {brd.edgeCases.map((ec) => (
+                  <div key={ec.id} className="p-2.5 rounded-md border border-border/70 text-xs space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="font-mono shrink-0">
+                        {ec.id}
+                      </Badge>
+                      <span className="font-medium text-foreground">{ec.scenario}</span>
+                    </div>
+                    <p className="text-muted-foreground pl-1 text-[11px]">
+                      Ekspektasi: {ec.expectedBehavior}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Success Metrics */}
+        {brd?.successMetrics && brd.successMetrics.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Metrik Keberhasilan (Success Metrics)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {brd.successMetrics.map((sm, idx) => (
+                  <div key={idx} className="p-2.5 rounded-md border border-border/70 bg-card/40 text-xs">
+                    <div className="font-semibold text-foreground">{sm.metric}</div>
+                    <div className="text-muted-foreground text-[11px] mt-0.5">{sm.target}</div>
                   </div>
                 ))}
               </div>
