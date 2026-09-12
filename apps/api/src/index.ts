@@ -574,6 +574,7 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
 
   const ctx = (task.aiContext ?? {}) as {
     taskId?: string;
+    userStoryId?: string;
     requirement_ids?: string[];
     depends_on?: string[];
     files_to_create?: string[];
@@ -587,6 +588,7 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
   };
 
   const brd = task.project.brd?.content as {
+    userStories?: Array<{ id: string; persona: string; action: string; benefit: string }>;
     functionalRequirements?: Array<{ id: string; title: string; description: string }>;
     businessRules?: Array<{ id: string; description: string }>;
     dataModels?: Array<{ name: string; description?: string; fields: Array<{ name: string; type: string; required?: boolean }>; relations?: string[] }>;
@@ -618,6 +620,15 @@ app.get('/api/agent/tasks/:id/context', requireAgent, async (req: AgentRequest, 
     ``,
     `**Layer**: ${task.layer} | **Project**: ${task.project.name} | **Status**: ${task.status}`,
   ];
+
+  if (ctx.userStoryId) {
+    const matchedStory = (brd?.userStories ?? []).find((s: any) => s.id === ctx.userStoryId);
+    if (matchedStory) {
+      mdParts.push(`**User Story Induk**: [${matchedStory.id}] Sebagai ${matchedStory.persona}, ${matchedStory.action}, ${matchedStory.benefit}`);
+    } else {
+      mdParts.push(`**User Story Induk**: ${ctx.userStoryId}`);
+    }
+  }
 
   if (task.dependsOn && task.dependsOn.length > 0) {
     const depsText = task.dependsOn
@@ -972,6 +983,9 @@ function buildTasksMarkdown(project: { name: string }, tasks: any[]): string {
     const aiCtx = (t.aiContext ?? {}) as any;
     lines.push(`## [${t.order}] ${t.title} (${t.layer})`);
     lines.push(`- **ID:** \`${t.id}\``);
+    if (aiCtx.userStoryId) {
+      lines.push(`- **User Story Induk:** \`${aiCtx.userStoryId}\``);
+    }
     lines.push(`- **Status:** ${t.status}`);
     lines.push(`- **Deskripsi:** ${t.description || '-'}`);
     lines.push(``);
@@ -1583,6 +1597,7 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
           apiContracts: (t as any).apiContracts ?? [],
           aiContext: {
             taskId: t.taskId,
+            userStoryId: t.userStoryId,
             requirement_ids: t.requirement_ids,
             depends_on: t.depends_on,
             files_to_create: t.files_to_create,
@@ -1642,7 +1657,10 @@ app.post('/api/projects/:id/tasks/generate', requireUser, async (req: AuthedRequ
 
 // Kanban list + update status (user side; agent pakai endpoint agent).
 app.get('/api/projects/:id/tasks', requireUser, async (req: AuthedRequest, res) => {
-  const project = await prisma.project.findFirst({ where: { id: req.params.id, userId: req.userId } });
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, userId: req.userId },
+    include: { brd: true },
+  });
   if (!project) return res.status(404).json({ error: 'Project tidak ditemukan.' });
   const tasks = await prisma.task.findMany({
     where: { projectId: project.id },
@@ -1655,7 +1673,8 @@ app.get('/api/projects/:id/tasks', requireUser, async (req: AuthedRequest, res) 
     },
     orderBy: { order: 'asc' },
   });
-  res.json({ tasks });
+  const userStories = (project.brd?.content as any)?.userStories ?? [];
+  res.json({ tasks, userStories });
 });
 
 app.patch('/api/tasks/:taskId', requireUser, async (req: AuthedRequest, res) => {

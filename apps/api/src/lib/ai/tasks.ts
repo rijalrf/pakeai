@@ -95,6 +95,8 @@ const TasksSchema = z.object({
     .array(
       z.object({
         taskId: z.string().optional(),
+        userStoryId: z.string().optional(),
+        user_story_id: z.string().optional(),
         title: z.string(),
         description: z.string().optional(),
         layer: z.enum(['BOOTSTRAP', 'DATABASE', 'BACKEND', 'FRONTEND', 'INTEGRATION']),
@@ -173,7 +175,8 @@ PRINSIP ATOMIC & LOW-COST COMPATIBILITY:
 1. Satu task fokus pada 1 tanggung jawab spesifik (Single Responsibility Principle).
 2. Lingkup tanggung jawab yang jelas: field files_to_create, files_to_modify, files_readonly, dan forbidden adalah panduan arsitektur (rekomendasi, non-blocking). Jangan memaksakan struktur monorepo Node jika stack yang dipilih adalah framework lain (seperti Laravel, Django, Go, dll).
 3. Berikan 'implementation_steps' yang konkret dan instruktif. WAJIB sertakan potongan kode contoh konkret (code snippets) jika membuat konfigurasi, skema, atau route agar agent tidak menebak-nebak nama field/fungsi.
-4. Kaitkan setiap task dengan ID kebutuhan ('requirement_ids', misal FR-001, BR-001).
+4. HIERARKI USER STORY KE TASK (WAJIB):
+   Setiap task adalah TURUNAN LANGSUNG dari User Story yang ada di BRD. Setiap task WAJIB mencantumkan 'userStoryId' (misal: 'US-001', 'US-002', dst) yang mereferensikan User Story induknya. Jika task berupa BOOTSTRAP umum yang menopang seluruh aplikasi, kaitkan dengan User Story pertama (misal 'US-001'). Satu User Story dapat menurunkan beberapa atomic task (seperti model database, backend API, dan antarmuka UI frontend). Kaitkan juga dengan ID kebutuhan ('requirement_ids', misal FR-001, BR-001).
 5. Berikan 'validation_commands' otomatis sesuai ekosistem stack pilihan (misal: Node: "npm test", "npm run build"; Laravel: "php artisan test"; Python: "pytest" / "python manage.py test"; Go: "go test ./...").
 6. Pisahkan 'acceptanceCriteria' (kondisi lulus fitur yang terukur dan testable) dari 'definition_of_done' (kondisi siap ditutup) dan 'out_of_scope' (hal yang dilarang dilakukan di task ini).
 7. Setiap task layer BACKEND yang membuat API endpoint WAJIB mendeklarasikan 'apiContracts' lengkap dengan method, path, requestBody, dan responseBody type signature.
@@ -246,6 +249,7 @@ Schema JSON (WAJIB):
   "tasks": [
     {
       "taskId": "TASK-001",
+      "userStoryId": "US-001",
       "title": "Judul task singkat & instruktif",
       "description": "Deskripsi lingkup teknis task",
       "layer": "BOOTSTRAP" | "DATABASE" | "BACKEND" | "FRONTEND" | "INTEGRATION",
@@ -339,12 +343,15 @@ Minimal 1 task per fitur. Urutkan order global. Pastikan semua task acceptance c
     projectId: args.projectId,
   });
 
+  const defaultStoryId = args.brd?.userStories?.[0]?.id || 'US-001';
   const normalizedTasks = out.tasks.map((t) => {
     const cmds = t.validation_commands;
     // Hanya ganti jika kosong — hormati pilihan eksplisit AI termasuk ['npm run build']
     const isEmpty = !cmds || cmds.length === 0;
+    const resolvedStoryId = t.userStoryId || t.user_story_id || defaultStoryId;
     return {
       ...t,
+      userStoryId: resolvedStoryId,
       validation_commands: isEmpty ? defaultValidation(t.layer, args.stack) : cmds,
     };
   });
